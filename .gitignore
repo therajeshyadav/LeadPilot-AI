@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+!.env.example
+coverage/
+*.log
+.DS_Store
+apps/*/.vite/
+prisma/migrations/
+.corepack/
+.npm-cache/
+.pnpm-home/
+.pnpm-store/
+work-npm-install*.log

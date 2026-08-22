@@ -1,0 +1,173 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SupportedLanguage {
+  ENGLISH
+  HINDI
+  TELUGU
+  UNKNOWN
+}
+
+enum LeadStatus {
+  UNQUALIFIED
+  HOT
+  WARM
+  COLD
+}
+
+enum ConversationOutcome {
+  IN_PROGRESS
+  COMPLETED
+  NO_ANSWER
+  VOICEMAIL
+  FAILED
+  ENDED_EARLY
+}
+
+enum ConversationRole {
+  AGENT
+  CUSTOMER
+  SYSTEM
+  TOOL
+}
+
+enum CallbackStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum WhatsAppMessageType {
+  HOT_LEAD
+  FOLLOW_UP
+  MANUAL
+}
+
+enum WhatsAppMessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+}
+
+enum QualificationClassification {
+  HOT
+  WARM
+  COLD
+}
+
+model Lead {
+  id               String            @id @default(cuid())
+  name             String?
+  phone            String            @unique
+  language         SupportedLanguage @default(UNKNOWN)
+  leadStatus       LeadStatus        @default(UNQUALIFIED)
+  budget           String?
+  productType      String?
+  productCount     Int?
+  launchTimeline   String?
+  requiredFeatures String[]          @default([])
+  notes            String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  conversations    Conversation[]
+  callbacks        Callback[]
+  whatsappMessages WhatsAppMessage[]
+  qualifications   LeadQualification[]
+}
+
+model Conversation {
+  id               String              @id @default(cuid())
+  leadId           String
+  providerCallId   String              @unique
+  startedAt        DateTime            @default(now())
+  endedAt          DateTime?
+  duration         Int?
+  transcript       String?
+  summary          String?
+  detectedLanguage SupportedLanguage   @default(UNKNOWN)
+  outcome          ConversationOutcome @default(IN_PROGRESS)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  lead             Lead                @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  messages         ConversationMessage[]
+  whatsappMessages WhatsAppMessage[]
+  qualifications   LeadQualification[]
+
+  @@index([leadId, startedAt])
+}
+
+model ConversationMessage {
+  id             String           @id @default(cuid())
+  conversationId String
+  role           ConversationRole
+  content        String
+  timestamp      DateTime         @default(now())
+
+  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, timestamp])
+}
+
+model Callback {
+  id              String         @id @default(cuid())
+  leadId          String
+  scheduledFor    DateTime
+  timezone        String         @default("Asia/Kolkata")
+  sourceText      String
+  status          CallbackStatus @default(SCHEDULED)
+  calendarEventId String?        @unique
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  lead            Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledFor])
+  @@index([leadId, scheduledFor])
+}
+
+model WhatsAppMessage {
+  id                String                @id @default(cuid())
+  leadId            String
+  conversationId    String?
+  type              WhatsAppMessageType
+  message           String
+  status            WhatsAppMessageStatus @default(PENDING)
+  idempotencyKey    String                @unique
+  providerMessageId String?               @unique
+  sentAt            DateTime?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  lead              Lead                  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  conversation      Conversation?         @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([leadId, createdAt])
+  @@index([conversationId, type])
+}
+
+model LeadQualification {
+  id             String                      @id @default(cuid())
+  leadId         String
+  conversationId String?
+  classification QualificationClassification
+  score          Int
+  reasoning      String
+  signals        Json
+  createdAt      DateTime                    @default(now())
+
+  lead           Lead                        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  conversation   Conversation?               @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([leadId, createdAt])
+  @@index([conversationId])
+}

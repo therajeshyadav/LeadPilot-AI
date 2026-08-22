@@ -1,0 +1,33 @@
+{
+  "name": "leadpilot-ai",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev:api & npm run dev:web",
+    "build": "npm run build:shared && npm run build:api && npm run build:web",
+    "typecheck": "npm run typecheck:shared && npm run typecheck:api && npm run typecheck:web",
+    "test": "npm run build:shared && npm run test:api && npm run test:web",
+    "test:watch": "cd apps\\api && npx --prefix ../.. vitest",
+    "prisma:generate": "npx prisma generate",
+    "prisma:validate": "npx prisma validate",
+    "prisma:migrate": "npx prisma migrate dev",
+    "dev:api": "npm --workspace @leadpilot/api run dev",
+    "dev:web": "npm --workspace @leadpilot/web run dev",
+    "build:shared": "cd packages\\shared && npx --prefix ../.. tsc -p tsconfig.json",
+    "build:api": "cd apps\\api && npx --prefix ../.. tsc -p tsconfig.json",
+    "build:web": "cd apps\\web && npx --prefix ../.. tsc -b && npx --prefix ../.. vite build",
+    "typecheck:shared": "cd packages\\shared && npx --prefix ../.. tsc -p tsconfig.json --noEmit",
+    "typecheck:api": "cd apps\\api && npx --prefix ../.. tsc -p tsconfig.json --noEmit",
+    "typecheck:web": "cd apps\\web && npx --prefix ../.. tsc -b --pretty false",
+    "test:api": "cd apps\\api && npx --prefix ../.. vitest run",
+    "test:web": "cd apps\\web && npx --prefix ../.. vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "prisma": "^6.12.0",
+    "typescript": "^5.8.3"
+  }
+}
