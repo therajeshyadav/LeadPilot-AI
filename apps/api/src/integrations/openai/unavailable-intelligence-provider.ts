@@ -1,5 +1,5 @@
 import type { LeadQualification, SupportedLanguage, UpdateLeadDiscoveryInput } from "@leadpilot/shared";
-import type { LeadIntelligenceProvider } from "./lead-intelligence-provider.js";
+import type { CallbackIntent, LeadIntelligenceProvider } from "./lead-intelligence-provider.js";
 
 export class UnavailableIntelligenceProvider implements LeadIntelligenceProvider {
   async detectLanguage(text: string): Promise<SupportedLanguage> {
@@ -28,5 +28,9 @@ export class UnavailableIntelligenceProvider implements LeadIntelligenceProvider
 
   async generateFollowUp(input: { name?: string; language: SupportedLanguage; transcript: string }): Promise<string> {
     return `Hi ${input.name || ""}, thank you for your interest in our services. We'll be in touch soon.`;
+  }
+
+  async detectCallbackIntent(transcript: string, language: SupportedLanguage): Promise<CallbackIntent> {
+    return { requested: false, originalText: "" };
   }
 }

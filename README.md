@@ -2,6 +2,25 @@
 
 Production-oriented outbound sales voice-agent platform for an e-commerce website development agency. The system will place real provider-backed outbound calls, capture the conversation, qualify leads, schedule callbacks, and send WhatsApp follow-ups. No telephony or WhatsApp action is simulated as successful.
 
+## Phase 6 status
+
+The Calendar & Callback Scheduling integration is complete:
+
+- **Real Google Calendar Integration**: Create calendar events via Google Calendar API with OAuth2
+- **Automatic Callback Detection**: AI detects callback requests from voice conversations in real-time
+- **Natural Language Processing**: Handles "call me tomorrow", "Monday afternoon", "5 PM", etc.
+- **Multi-Language Support**: English, Hindi, and Telugu callback requests
+- **Smart Time Defaults**: Morning (10 AM), Afternoon (3 PM), Evening (6 PM) configurable
+- **Timezone Handling**: Asia/Kolkata default with full IANA timezone support
+- **Graceful Degradation**: Calendar API failures don't disrupt voice calls
+- **Comprehensive Testing**: 12 new tests covering all callback scenarios
+
+Critical Assignment Requirement Implemented:
+```
+Voice Call → Transcript → AI Detects "call me tomorrow" → 
+Callback Scheduled → Google Calendar Event Created → Database Record Saved
+```
+
 ## Phase 5 status
 
 The WhatsApp integration is complete:

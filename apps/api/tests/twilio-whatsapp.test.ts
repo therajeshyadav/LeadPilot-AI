@@ -76,7 +76,7 @@ describe("TwilioWhatsAppProvider", () => {
         to: "+919876543210",
         body: "Test message", 
         idempotencyKey: "test_key",
-      })).rejects.toThrow("HTTP 400");
+      })).rejects.toThrow("Failed to send WhatsApp message: Bad Request");
     });
 
     it("should format Indian phone numbers correctly", async () => {

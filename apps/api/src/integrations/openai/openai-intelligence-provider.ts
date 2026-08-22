@@ -1,5 +1,5 @@
 import type { LeadQualification, SupportedLanguage, UpdateLeadDiscoveryInput } from "@leadpilot/shared";
-import type { LeadIntelligenceProvider } from "./lead-intelligence-provider.js";
+import type { CallbackIntent, LeadIntelligenceProvider } from "./lead-intelligence-provider.js";
 
 export class OpenAIIntelligenceProvider implements LeadIntelligenceProvider {
   private readonly apiKey: string;
@@ -215,6 +215,90 @@ Conversation: ${input.transcript}`
     } catch (error) {
       console.error("Follow-up generation failed:", error);
       return `Hi ${input.name || ""}, thank you for your interest in our e-commerce development services. We'll be in touch soon to discuss your requirements. Contact: +91-9876543210`;
+    }
+  }
+
+  async detectCallbackIntent(transcript: string, language: SupportedLanguage): Promise<CallbackIntent> {
+    try {
+      const languageExamples = {
+        ENGLISH: `- "Call me tomorrow"
+- "Call me tomorrow morning"
+- "Call me at 5 PM"
+- "Can you call back on Monday afternoon?"
+- "Let's talk next week"
+- "Call me in the evening"`,
+        HINDI: `- "कल मुझे फोन करें"
+- "कल सुबह मुझे कॉल करें"
+- "शाम को बात करते हैं"
+- "सोमवार को फोन कर देना"`,
+        TELUGU: `- "రేపు నాకు ఫోన్ చేయండి"
+- "ఉదయం కాల్ చేయండి"
+- "సాయంత్రం మాట్లాడుకుందాం"`,
+        UNKNOWN: "Use English examples"
+      };
+
+      const response = await this.callOpenAI({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `Analyze if the customer is requesting a callback and extract when they want to be called.
+
+Return JSON with this exact structure:
+{
+  "requested": boolean,
+  "date": "YYYY-MM-DD or null (specific date like 'tomorrow', 'Monday', 'next week')",
+  "timeOfDay": "morning | afternoon | evening | specific | null",
+  "specificTime": "HH:MM or null (24-hour format like '17:00' for 5 PM)",
+  "originalText": "exact phrase from transcript"
+}
+
+Language context: ${language}
+
+Examples:
+${languageExamples[language] || languageExamples.ENGLISH}
+
+Rules:
+- "tomorrow" = next day from today
+- "Monday", "Tuesday" etc = next occurrence of that weekday
+- "next week" = 7 days from today
+- "morning" = morning timeOfDay
+- "afternoon" = afternoon timeOfDay  
+- "evening" = evening timeOfDay
+- "5 PM", "17:00" = specificTime "17:00"
+- If no callback mentioned, requested = false
+- Only extract information explicitly mentioned
+- For dates in the past or unclear references, use null`
+          },
+          {
+            role: "user",
+            content: `Today is ${new Date().toISOString().split('T')[0]}
+
+Transcript: ${transcript}`
+          }
+        ],
+        max_tokens: 300,
+        temperature: 0,
+        response_format: { type: "json_object" }
+      });
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        return { requested: false, originalText: "" };
+      }
+
+      const parsed = JSON.parse(content);
+
+      return {
+        requested: Boolean(parsed.requested),
+        date: parsed.date || undefined,
+        timeOfDay: parsed.timeOfDay || undefined,
+        specificTime: parsed.specificTime || undefined,
+        originalText: parsed.originalText || ""
+      };
+    } catch (error) {
+      console.error("Callback intent detection failed:", error);
+      return { requested: false, originalText: "" };
     }
   }
 

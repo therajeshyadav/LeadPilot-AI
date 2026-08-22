@@ -9,6 +9,7 @@ import { VapiProvider } from "../integrations/voice/vapi-provider.js";
 import { UnavailableVoiceProvider } from "../integrations/voice/unavailable-voice-provider.js";
 import { TwilioWhatsAppProvider } from "../integrations/whatsapp/twilio-whatsapp-provider.js";
 import { UnavailableWhatsAppProvider } from "../integrations/whatsapp/unavailable-whatsapp-provider.js";
+import { GoogleCalendarProvider } from "../integrations/calendar/google-calendar-provider.js";
 
 export function createConfiguredServices(config: AppConfig): AppServices {
   // Setup repositories
@@ -37,8 +38,22 @@ export function createConfiguredServices(config: AppConfig): AppServices {
       })
     : new UnavailableWhatsAppProvider();
 
-  // Setup calendar provider (will be implemented later)
-  const calendarProvider = undefined;
+  // Setup Google Calendar provider
+  const calendarProvider = (
+    config.GOOGLE_CLIENT_ID &&
+    config.GOOGLE_CLIENT_SECRET &&
+    config.GOOGLE_REDIRECT_URI &&
+    config.GOOGLE_REFRESH_TOKEN &&
+    config.GOOGLE_CALENDAR_ID
+  )
+    ? new GoogleCalendarProvider({
+        clientId: config.GOOGLE_CLIENT_ID,
+        clientSecret: config.GOOGLE_CLIENT_SECRET,
+        redirectUri: config.GOOGLE_REDIRECT_URI,
+        refreshToken: config.GOOGLE_REFRESH_TOKEN,
+        calendarId: config.GOOGLE_CALENDAR_ID,
+      })
+    : undefined;
 
   return createServices({
     repositories,

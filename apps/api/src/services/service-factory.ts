@@ -40,13 +40,14 @@ export function createServices(input: {
   const callbacks = new CallbackService(repositories.callbacks, repositories.leads, input.calendarProvider);
   const whatsapp = new WhatsAppService(repositories.whatsappMessages, repositories.leads, input.whatsappProvider);
   
-  // Create voice service with whatsapp dependency
+  // Create voice service with whatsapp and callbacks dependencies
   const voice = new VoiceService(
     repositories.conversations, 
     repositories.leads, 
     input.voiceProvider, 
     input.intelligenceProvider,
-    whatsapp
+    whatsapp,
+    callbacks
   );
 
   return {

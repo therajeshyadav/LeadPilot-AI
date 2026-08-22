@@ -3,6 +3,7 @@ import { WhatsAppService } from "../src/services/whatsapp.service.js";
 import { VoiceService } from "../src/services/voice.service.js";
 import type { WhatsAppProvider } from "../src/integrations/whatsapp/whatsapp-provider.js";
 import type { LeadIntelligenceProvider } from "../src/integrations/openai/lead-intelligence-provider.js";
+import type { VoiceProvider } from "../src/integrations/voice/voice-provider.js";
 import { createInMemoryRepositories } from "../src/repositories/in-memory-repositories.js";
 
 describe("HOT Lead WhatsApp Integration", () => {
@@ -10,6 +11,7 @@ describe("HOT Lead WhatsApp Integration", () => {
   let voiceService: VoiceService;
   let mockWhatsAppProvider: WhatsAppProvider;
   let mockIntelligenceProvider: LeadIntelligenceProvider;
+  let mockVoiceProvider: VoiceProvider;
   let repositories: ReturnType<typeof createInMemoryRepositories>;
 
   beforeEach(() => {
@@ -32,6 +34,29 @@ describe("HOT Lead WhatsApp Integration", () => {
       generateFollowUp: vi.fn().mockResolvedValue("Thank you for your interest!"),
     };
 
+    mockVoiceProvider = {
+      name: "test-voice",
+      createOutboundCall: vi.fn().mockResolvedValue({ 
+        providerCallId: "call_123",
+        status: "in-progress",
+        to: "+919876543210",
+      }),
+      endCall: vi.fn().mockResolvedValue(undefined),
+      getCall: vi.fn().mockResolvedValue(null),
+      parseAndVerifyWebhook: vi.fn().mockImplementation((body) => {
+        const data = JSON.parse(body.toString());
+        return Promise.resolve({
+          eventId: "event_123",
+          type: data.message.type,
+          providerCallId: data.message.call.id,
+          occurredAt: new Date(data.message.timestamp),
+          transcript: data.message.transcript,
+          detectedLanguage: "ENGLISH" as const,
+          payload: data,
+        });
+      }),
+    };
+
     whatsappService = new WhatsAppService(
       repositories.whatsappMessages,
       repositories.leads,
@@ -41,7 +66,7 @@ describe("HOT Lead WhatsApp Integration", () => {
     voiceService = new VoiceService(
       repositories.conversations,
       repositories.leads,
-      undefined, // no voice provider for these tests
+      mockVoiceProvider,
       mockIntelligenceProvider,
       whatsappService
     );
@@ -337,7 +362,7 @@ describe("HOT Lead WhatsApp Integration", () => {
         type: "transcript_received",
         providerCallId: "call_fail",
         occurredAt: new Date(),
-        transcript: "I want to buy this right now!",
+        transcript: "I want to buy this right now! I need a complete e-commerce solution with payment gateway, shipping integration, and inventory management. My budget is flexible and I want to launch within 2 weeks.",
         detectedLanguage: "ENGLISH" as const,
         payload: {},
       };

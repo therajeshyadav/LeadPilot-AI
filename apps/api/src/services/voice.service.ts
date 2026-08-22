@@ -3,6 +3,7 @@ import type { LeadIntelligenceProvider } from "../integrations/openai/lead-intel
 import type { VoiceProvider, OutboundCallRequest, VoiceCall, VoiceWebhookEvent } from "../integrations/voice/voice-provider.js";
 import type { ConversationRepository, LeadRepository } from "../repositories/contracts.js";
 import type { WhatsAppService } from "./whatsapp.service.js";
+import type { CallbackService } from "./callback.service.js";
 
 export class VoiceService {
   constructor(
@@ -11,6 +12,7 @@ export class VoiceService {
     private readonly voiceProvider?: VoiceProvider,
     private readonly intelligence?: LeadIntelligenceProvider,
     private readonly whatsapp?: WhatsAppService,
+    private readonly callbacks?: CallbackService,
   ) {}
 
   async createOutboundCall(request: OutboundCallRequest): Promise<VoiceCall> {
@@ -111,8 +113,104 @@ export class VoiceService {
         await this.checkForHotLeadAndSendWhatsApp(conversation.leadId, conversationId, event.transcript, detectedLanguage || "UNKNOWN");
       }
 
+      // Detect callback intent and schedule if requested
+      if (this.intelligence && this.callbacks && event.transcript.length > 50) {
+        await this.checkForCallbackIntent(conversation.leadId, conversationId, event.transcript, detectedLanguage || "UNKNOWN");
+      }
+
       console.log(`Transcript received for call: ${event.providerCallId}`);
     }
+  }
+
+  /**
+   * Detect if customer wants a callback and schedule it automatically
+   */
+  private async checkForCallbackIntent(leadId: string, conversationId: string, transcript: string, language: SupportedLanguage): Promise<void> {
+    if (!this.intelligence || !this.callbacks) return;
+
+    try {
+      const intent = await this.intelligence.detectCallbackIntent(transcript, language);
+
+      if (!intent.requested) {
+        return; // No callback requested
+      }
+
+      console.log(`📅 Callback requested for lead ${leadId}: ${intent.originalText}`);
+
+      // Calculate scheduled date/time
+      const scheduledFor = this.calculateCallbackDateTime(intent);
+      const timezone = process.env.DEFAULT_TIMEZONE || "Asia/Kolkata";
+
+      // Prevent scheduling in the past
+      if (scheduledFor.getTime() <= Date.now()) {
+        console.warn(`Callback date is in the past for lead ${leadId}, skipping`);
+        return;
+      }
+
+      // Get lead for context
+      const lead = await this.leads.findById(leadId);
+      if (!lead) return;
+
+      // Schedule the callback
+      try {
+        const result = await this.callbacks.schedule(leadId, {
+          scheduledFor,
+          timezone,
+          sourceText: intent.originalText || transcript.slice(0, 200),
+        });
+
+        console.log(`✅ Callback scheduled for lead ${leadId} on ${scheduledFor.toISOString()} (${timezone})`);
+        console.log(`   Calendar sync status: ${result.calendarSync}`);
+
+      } catch (callbackError) {
+        console.error(`❌ Failed to schedule callback for ${leadId}:`, callbackError);
+        // Don't let callback scheduling failure disrupt the call
+      }
+
+    } catch (error) {
+      console.error(`Error in callback intent detection for ${leadId}:`, error);
+      // Don't let errors disrupt the call processing
+    }
+  }
+
+  /**
+   * Calculate callback date/time based on detected intent
+   */
+  private calculateCallbackDateTime(intent: import("../integrations/openai/lead-intelligence-provider.js").CallbackIntent): Date {
+    const now = new Date();
+    let targetDate = new Date(now);
+
+    // Parse date if provided (YYYY-MM-DD format)
+    if (intent.date) {
+      const parsedDate = new Date(intent.date);
+      if (!isNaN(parsedDate.getTime())) {
+        targetDate = parsedDate;
+      }
+    }
+
+    // Set time based on specificTime or timeOfDay
+    if (intent.specificTime) {
+      // Format: "HH:MM"
+      const [hours, minutes] = intent.specificTime.split(':').map(Number);
+      targetDate.setHours(hours, minutes, 0, 0);
+    } else if (intent.timeOfDay) {
+      // Use configured defaults for time of day
+      const defaultHours = {
+        morning: parseInt(process.env.DEFAULT_CALLBACK_MORNING_HOUR || "10", 10),
+        afternoon: parseInt(process.env.DEFAULT_CALLBACK_AFTERNOON_HOUR || "15", 10),
+        evening: parseInt(process.env.DEFAULT_CALLBACK_EVENING_HOUR || "18", 10),
+        specific: parseInt(process.env.DEFAULT_CALLBACK_AFTERNOON_HOUR || "15", 10),
+      };
+
+      const hour = defaultHours[intent.timeOfDay];
+      targetDate.setHours(hour, 0, 0, 0);
+    } else {
+      // Default to afternoon if no time specified
+      const defaultHour = parseInt(process.env.DEFAULT_CALLBACK_AFTERNOON_HOUR || "15", 10);
+      targetDate.setHours(defaultHour, 0, 0, 0);
+    }
+
+    return targetDate;
   }
 
   /**
@@ -224,7 +322,7 @@ export class VoiceService {
         const lead = await this.leads.findById(leadId);
         if (lead) {
           const followUpMessage = await this.intelligence.generateFollowUp({
-            name: lead.name,
+            name: lead.name ?? undefined,
             language,
             transcript
           });
