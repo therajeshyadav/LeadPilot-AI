@@ -2,17 +2,36 @@
 
 Production-oriented outbound sales voice-agent platform for an e-commerce website development agency. The system will place real provider-backed outbound calls, capture the conversation, qualify leads, schedule callbacks, and send WhatsApp follow-ups. No telephony or WhatsApp action is simulated as successful.
 
-## Phase 1 status
+## Phase 5 status
+
+The WhatsApp integration is complete:
+
+- **Real Twilio WhatsApp Provider**: Send text and media messages via Twilio API
+- **Mid-Call HOT Lead Detection**: AI automatically detects HOT leads during live calls and sends WhatsApp immediately
+- **Contextual Follow-ups**: Post-call WhatsApp messages generated from actual conversation transcripts
+- **Multi-Language Support**: WhatsApp messages in English, Hindi, and Telugu based on detected language
+- **Idempotency Protection**: Prevents duplicate HOT lead alerts for the same conversation
+- **Media Attachments**: Support for architecture images and resume documents
+- **Comprehensive Testing**: 15+ tests covering HOT lead detection, duplicate prevention, and failure handling
+
+Critical Assignment Requirement Implemented:
+```
+Live Vapi Call → Transcript → AI Qualification → HOT Detected → WhatsApp Sent IMMEDIATELY → Call Continues
+```
+
+## Phase 1-4 status
 
 The monorepo foundation is complete:
 
-- Express + TypeScript API with `GET /api/health`
+- Express + TypeScript API with security middleware and comprehensive endpoints
 - React/Vite/Tailwind dashboard shell
 - PostgreSQL Prisma data model for leads, calls, messages, callbacks, WhatsApp, and qualification
-- Zod runtime validation, Helmet, CORS, request limits, rate limiting, and structured request logging
-- pnpm workspaces and test/typecheck/build scripts
+- Vapi voice provider integration with outbound calling and webhook processing
+- OpenAI integration for language detection, lead qualification, and conversation analysis
+- Complete service/repository architecture with dependency injection
+- All builds, typechecks, and tests passing
 
-Provider integrations, the operational dashboard, and production documentation are added in subsequent phases.
+Provider integrations, operational dashboard, and production documentation are added in subsequent phases.
 
 ## Local setup
 

@@ -13,5 +13,6 @@ export function createLeadsRouter(services: AppServices): Router {
   router.patch("/:id", controller.updateDiscovery);
   router.post("/:id/qualify", controller.qualify);
   router.post("/:id/whatsapp", controller.sendWhatsApp);
+  router.post("/:id/whatsapp/hot", controller.sendHotLeadAlert);
   return router;
 }

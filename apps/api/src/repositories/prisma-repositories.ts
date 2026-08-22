@@ -105,6 +105,23 @@ class PrismaConversationRepository implements ConversationRepository {
     return result ? asConversation(result) : null;
   }
 
+  async update(id: string, input: Partial<ConversationRecord>): Promise<ConversationRecord> {
+    return asConversation(
+      await this.db.conversation.update({
+        where: { id },
+        data: {
+          transcript: input.transcript,
+          detectedLanguage: input.detectedLanguage,
+          outcome: input.outcome,
+          startedAt: input.startedAt,
+          endedAt: input.endedAt,
+          duration: input.duration,
+          summary: input.summary,
+        },
+      }),
+    );
+  }
+
   async appendMessage(input: {
     conversationId: string;
     role: ConversationMessageRecord["role"];

@@ -1,10 +1,13 @@
 import type { CalendarProvider } from "../integrations/calendar/calendar-provider.js";
+import type { LeadIntelligenceProvider } from "../integrations/openai/lead-intelligence-provider.js";
+import type { VoiceProvider } from "../integrations/voice/voice-provider.js";
 import type { WhatsAppProvider } from "../integrations/whatsapp/whatsapp-provider.js";
 import type { Repositories } from "../repositories/contracts.js";
 import { CallbackService } from "./callback.service.js";
 import { ConversationService } from "./conversation.service.js";
 import { LeadService } from "./lead.service.js";
 import { QualificationService } from "./qualification.service.js";
+import { VoiceService } from "./voice.service.js";
 import { WhatsAppService } from "./whatsapp.service.js";
 
 export interface AppServices {
@@ -13,19 +16,45 @@ export interface AppServices {
   qualifications: QualificationService;
   callbacks: CallbackService;
   whatsapp: WhatsAppService;
+  voice: VoiceService;
 }
 
 export function createServices(input: {
   repositories: Repositories;
   whatsappProvider: WhatsAppProvider;
+  voiceProvider?: VoiceProvider;
+  intelligenceProvider?: LeadIntelligenceProvider;
   calendarProvider?: CalendarProvider;
 }): AppServices {
   const { repositories } = input;
+  
+  // Create services without circular dependencies first
+  const leads = new LeadService(repositories.leads);
+  const conversations = new ConversationService(repositories.conversations, repositories.leads);
+  const qualifications = new QualificationService(
+    repositories.leads, 
+    repositories.conversations, 
+    repositories.qualifications,
+    input.intelligenceProvider
+  );
+  const callbacks = new CallbackService(repositories.callbacks, repositories.leads, input.calendarProvider);
+  const whatsapp = new WhatsAppService(repositories.whatsappMessages, repositories.leads, input.whatsappProvider);
+  
+  // Create voice service with whatsapp dependency
+  const voice = new VoiceService(
+    repositories.conversations, 
+    repositories.leads, 
+    input.voiceProvider, 
+    input.intelligenceProvider,
+    whatsapp
+  );
+
   return {
-    leads: new LeadService(repositories.leads),
-    conversations: new ConversationService(repositories.conversations, repositories.leads),
-    qualifications: new QualificationService(repositories.leads, repositories.conversations, repositories.qualifications),
-    callbacks: new CallbackService(repositories.callbacks, repositories.leads, input.calendarProvider),
-    whatsapp: new WhatsAppService(repositories.whatsappMessages, repositories.leads, input.whatsappProvider),
+    leads,
+    conversations,
+    qualifications,
+    callbacks,
+    whatsapp,
+    voice,
   };
 }

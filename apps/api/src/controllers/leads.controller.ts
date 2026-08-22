@@ -25,6 +25,7 @@ export function createLeadsController(services: AppServices): {
   updateDiscovery: RequestHandler;
   qualify: RequestHandler;
   sendWhatsApp: RequestHandler;
+  sendHotLeadAlert: RequestHandler;
 } {
   return {
     create: async (request, response) => {
@@ -71,6 +72,30 @@ export function createLeadsController(services: AppServices): {
         "WhatsApp send processed",
       );
       response.status(result.idempotent ? 200 : 201).json({ data: result.message, idempotent: result.idempotent });
+    },
+
+    sendHotLeadAlert: async (request, response) => {
+      const { id } = parseRequest(leadIdParamSchema, request.params);
+      
+      try {
+        const lead = await services.leads.get(id);
+        const result = await services.whatsapp.sendHotLeadAlert({
+          leadId: id,
+          leadData: lead,
+          language: lead.language,
+          salesContactPhone: process.env.SALES_CONTACT_PHONE,
+        });
+        
+        request.log.info(
+          { event: "HOT_WHATSAPP_MANUAL", leadId: id, messageId: result.message.id, idempotent: result.idempotent },
+          "Manual HOT lead WhatsApp processed",
+        );
+        
+        response.status(result.idempotent ? 200 : 201).json({ data: result.message, idempotent: result.idempotent });
+      } catch (error) {
+        request.log.error({ leadId: id, error: error instanceof Error ? error.message : "Unknown error" }, "HOT lead WhatsApp failed");
+        throw error;
+      }
     },
   };
 }

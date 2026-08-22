@@ -1,0 +1,261 @@
+import type { SupportedLanguage } from "@leadpilot/shared";
+import type { LeadIntelligenceProvider } from "../integrations/openai/lead-intelligence-provider.js";
+import type { VoiceProvider, OutboundCallRequest, VoiceCall, VoiceWebhookEvent } from "../integrations/voice/voice-provider.js";
+import type { ConversationRepository, LeadRepository } from "../repositories/contracts.js";
+import type { WhatsAppService } from "./whatsapp.service.js";
+
+export class VoiceService {
+  constructor(
+    private readonly conversations: ConversationRepository,
+    private readonly leads: LeadRepository,
+    private readonly voiceProvider?: VoiceProvider,
+    private readonly intelligence?: LeadIntelligenceProvider,
+    private readonly whatsapp?: WhatsAppService,
+  ) {}
+
+  async createOutboundCall(request: OutboundCallRequest): Promise<VoiceCall> {
+    if (!this.voiceProvider) {
+      throw new Error("VOICE_PROVIDER_NOT_CONFIGURED");
+    }
+
+    const call = await this.voiceProvider.createOutboundCall(request);
+    
+    // Create conversation record
+    await this.conversations.create({
+      leadId: request.leadId,
+      providerCallId: call.providerCallId,
+      startedAt: call.startedAt || new Date(),
+      detectedLanguage: "UNKNOWN"
+    });
+
+    return call;
+  }
+
+  async handleWebhookEvent(rawBody: Buffer, headers: Record<string, string | string[] | undefined>): Promise<void> {
+    if (!this.voiceProvider) {
+      throw new Error("VOICE_PROVIDER_NOT_CONFIGURED");
+    }
+
+    const event = await this.voiceProvider.parseAndVerifyWebhook(rawBody, headers);
+    
+    // Find conversation by provider call ID
+    const conversation = await this.conversations.findByProviderCallId(event.providerCallId);
+    if (!conversation) {
+      console.warn(`No conversation found for call ID: ${event.providerCallId}`);
+      return;
+    }
+
+    // Handle different event types
+    switch (event.type) {
+      case "call_started":
+        await this.handleCallStarted(conversation.id, event);
+        break;
+      case "transcript_received":
+        await this.handleTranscriptReceived(conversation.id, event);
+        break;
+      case "call_ended":
+        await this.handleCallEnded(conversation.id, event);
+        break;
+      default:
+        console.log(`Unhandled voice event type: ${event.type}`);
+    }
+  }
+
+  async getCall(providerCallId: string): Promise<VoiceCall | null> {
+    if (!this.voiceProvider) {
+      throw new Error("VOICE_PROVIDER_NOT_CONFIGURED");
+    }
+
+    return this.voiceProvider.getCall(providerCallId);
+  }
+
+  async endCall(providerCallId: string): Promise<void> {
+    if (!this.voiceProvider) {
+      throw new Error("VOICE_PROVIDER_NOT_CONFIGURED");
+    }
+
+    await this.voiceProvider.endCall(providerCallId);
+  }
+
+  private async handleCallStarted(conversationId: string, event: VoiceWebhookEvent): Promise<void> {
+    await this.conversations.update(conversationId, {
+      startedAt: event.occurredAt,
+      outcome: "IN_PROGRESS"
+    });
+
+    console.log(`Call started: ${event.providerCallId}`);
+  }
+
+  private async handleTranscriptReceived(conversationId: string, event: VoiceWebhookEvent): Promise<void> {
+    if (event.transcript) {
+      const conversation = await this.conversations.findById(conversationId);
+      if (!conversation) return;
+
+      // Update conversation with transcript
+      await this.conversations.update(conversationId, {
+        transcript: event.transcript,
+        detectedLanguage: event.detectedLanguage || "UNKNOWN"
+      });
+
+      // Detect language using AI if not already detected
+      let detectedLanguage = event.detectedLanguage;
+      if (this.intelligence && detectedLanguage === "UNKNOWN") {
+        detectedLanguage = await this.intelligence.detectLanguage(event.transcript);
+        await this.conversations.update(conversationId, {
+          detectedLanguage
+        });
+      }
+
+      // CRITICAL: Mid-call HOT lead detection and immediate WhatsApp
+      if (this.intelligence && this.whatsapp && event.transcript.length > 100) {
+        await this.checkForHotLeadAndSendWhatsApp(conversation.leadId, conversationId, event.transcript, detectedLanguage || "UNKNOWN");
+      }
+
+      console.log(`Transcript received for call: ${event.providerCallId}`);
+    }
+  }
+
+  /**
+   * CRITICAL: Check if lead is HOT during live call and send WhatsApp immediately
+   */
+  private async checkForHotLeadAndSendWhatsApp(leadId: string, conversationId: string, transcript: string, language: SupportedLanguage): Promise<void> {
+    if (!this.intelligence || !this.whatsapp) return;
+
+    try {
+      const lead = await this.leads.findById(leadId);
+      if (!lead) return;
+
+      // Get current lead discovery data
+      const currentLead = {
+        budget: lead.budget || undefined,
+        productType: lead.productType || undefined,
+        productCount: lead.productCount || undefined,
+        launchTimeline: lead.launchTimeline || undefined,
+        requiredFeatures: lead.requiredFeatures || [],
+        notes: lead.notes || undefined,
+      };
+
+      // Use AI to qualify the conversation in real-time
+      const qualification = await this.intelligence.qualifyConversation({
+        transcript,
+        currentLead
+      });
+
+      console.log(`Lead qualification for ${leadId}: ${qualification.classification} (score: ${qualification.score})`);
+
+      // If lead is HOT, send WhatsApp immediately (during live call!)
+      if (qualification.classification === "HOT") {
+        console.log(`🔥 HOT LEAD DETECTED during live call for lead ${leadId}, sending WhatsApp immediately`);
+
+        // Extract latest discovery info from transcript
+        const discoveredInfo = await this.intelligence.extractDiscovery(transcript);
+
+        // Send immediate HOT lead WhatsApp
+        try {
+          const result = await this.whatsapp.sendHotLeadAlert({
+            leadId,
+            conversationId,
+            leadData: lead,
+            discoveredInfo: {
+              budget: discoveredInfo.budget,
+              productType: discoveredInfo.productType,
+              timeline: discoveredInfo.launchTimeline,
+              requirements: discoveredInfo.requiredFeatures,
+            },
+            language,
+            salesContactPhone: process.env.SALES_CONTACT_PHONE,
+          });
+
+          if (result.idempotent) {
+            console.log(`HOT lead WhatsApp already sent for conversation ${conversationId}`);
+          } else {
+            console.log(`✅ HOT lead WhatsApp sent successfully during live call: ${result.message.id}`);
+          }
+
+          // Update lead status to HOT
+          await this.leads.setStatus(leadId, "HOT");
+
+        } catch (whatsappError) {
+          console.error(`❌ Failed to send HOT lead WhatsApp for ${leadId}:`, whatsappError);
+          // Don't let WhatsApp failure disrupt the call
+        }
+      }
+    } catch (error) {
+      console.error(`Error in mid-call HOT lead detection for ${leadId}:`, error);
+      // Don't let errors disrupt the call processing
+    }
+  }
+
+  private async handleCallEnded(conversationId: string, event: VoiceWebhookEvent): Promise<void> {
+    const conversation = await this.conversations.findById(conversationId);
+    if (!conversation) return;
+
+    // Update conversation with end details
+    await this.conversations.update(conversationId, {
+      endedAt: event.occurredAt,
+      outcome: "COMPLETED",
+      duration: conversation.startedAt 
+        ? Math.floor((event.occurredAt.getTime() - conversation.startedAt.getTime()) / 1000)
+        : undefined
+    });
+
+    // Trigger post-call processing if we have AI and transcript
+    if (this.intelligence && conversation.transcript) {
+      await this.processCallEnded(conversation.leadId, conversationId, conversation.transcript, conversation.detectedLanguage);
+    }
+
+    console.log(`Call ended: ${event.providerCallId}`);
+  }
+
+  private async processCallEnded(leadId: string, conversationId: string, transcript: string, language: SupportedLanguage): Promise<void> {
+    if (!this.intelligence) return;
+
+    try {
+      // Extract discovery information
+      const discovery = await this.intelligence.extractDiscovery(transcript);
+      
+      // Update lead with discovered information
+      if (Object.keys(discovery).length > 0) {
+        await this.leads.updateDiscovery(leadId, discovery);
+      }
+
+      // Send contextual follow-up WhatsApp using AI-generated message
+      if (this.whatsapp) {
+        const lead = await this.leads.findById(leadId);
+        if (lead) {
+          const followUpMessage = await this.intelligence.generateFollowUp({
+            name: lead.name,
+            language,
+            transcript
+          });
+
+          // Prepare media URLs if available
+          const mediaUrls = [];
+          if (process.env.ARCHITECTURE_IMAGE_URL) {
+            mediaUrls.push(process.env.ARCHITECTURE_IMAGE_URL);
+          }
+          if (process.env.RESUME_DOCUMENT_URL) {
+            mediaUrls.push(process.env.RESUME_DOCUMENT_URL);
+          }
+
+          try {
+            await this.whatsapp.sendFollowUpMessage({
+              leadId,
+              conversationId,
+              message: followUpMessage,
+              mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
+            });
+
+            console.log(`📱 Post-call follow-up WhatsApp sent for lead ${leadId}`);
+          } catch (followUpError) {
+            console.error(`Failed to send post-call follow-up WhatsApp for ${leadId}:`, followUpError);
+          }
+        }
+      }
+
+      console.log(`Post-call processing completed for lead: ${leadId}`);
+    } catch (error) {
+      console.error("Post-call processing failed:", error);
+    }
+  }
+}

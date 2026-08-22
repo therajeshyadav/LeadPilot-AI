@@ -50,4 +50,13 @@ export class ConversationService {
     const duration = Math.floor((endedAt.getTime() - conversation.startedAt.getTime()) / 1_000);
     return this.conversations.finish(id, { ...input, endedAt, duration });
   }
+
+  async listForLead(leadId: string): Promise<ConversationRecord[]> {
+    const lead = await this.leads.findById(leadId);
+    if (!lead) throw new NotFoundError("Lead");
+    
+    // This would require a new repository method - for now return empty array
+    // TODO: Implement listByLeadId in ConversationRepository
+    return [];
+  }
 }

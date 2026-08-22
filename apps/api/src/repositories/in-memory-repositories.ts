@@ -143,6 +143,20 @@ export class InMemoryConversationRepository implements ConversationRepository {
     return [...this.records.values()].find((conversation) => conversation.providerCallId === providerCallId) ?? null;
   }
 
+  async update(id: string, input: Partial<ConversationRecord>): Promise<ConversationRecord> {
+    const existing = this.records.get(id);
+    if (!existing) throw new Error(`Conversation ${id} not found`);
+    
+    const updated = {
+      ...existing,
+      ...input,
+      updatedAt: new Date(),
+    };
+    
+    this.records.set(id, updated);
+    return updated;
+  }
+
   async appendMessage(input: {
     conversationId: string;
     role: ConversationMessageRecord["role"];

@@ -33,6 +33,7 @@ export interface ConversationRepository {
   create(input: CreateConversationInput): Promise<ConversationRecord>;
   findById(id: string): Promise<ConversationRecord | null>;
   findByProviderCallId(providerCallId: string): Promise<ConversationRecord | null>;
+  update(id: string, input: Partial<ConversationRecord>): Promise<ConversationRecord>;
   appendMessage(input: {
     conversationId: string;
     role: ConversationMessageRecord["role"];

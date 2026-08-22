@@ -1,15 +1,29 @@
 import { randomUUID } from "node:crypto";
 
-import type { SendWhatsAppInput } from "@leadpilot/shared";
+import type { SendWhatsAppInput, SupportedLanguage } from "@leadpilot/shared";
 
 import type { WhatsAppProvider } from "../integrations/whatsapp/whatsapp-provider.js";
 import type { LeadRepository, WhatsAppMessageRepository } from "../repositories/contracts.js";
-import type { WhatsAppMessageRecord } from "../types/domain.js";
+import type { LeadRecord, WhatsAppMessageRecord } from "../types/domain.js";
 import { IntegrationFailureError, NotFoundError, isAppError } from "../utils/errors.js";
 
 export interface SendWhatsAppResult {
   message: WhatsAppMessageRecord;
   idempotent: boolean;
+}
+
+export interface HotLeadWhatsAppInput {
+  leadId: string;
+  conversationId?: string;
+  leadData: LeadRecord;
+  discoveredInfo?: {
+    budget?: string;
+    productType?: string;
+    timeline?: string;
+    requirements?: string[];
+  };
+  language: SupportedLanguage;
+  salesContactPhone?: string;
 }
 
 export class WhatsAppService {
@@ -47,9 +61,203 @@ export class WhatsAppService {
     }
   }
 
+  /**
+   * CRITICAL: Send immediate WhatsApp when lead becomes HOT during live call
+   * This must execute DURING the call, not after it ends
+   */
+  async sendHotLeadAlert(input: HotLeadWhatsAppInput): Promise<SendWhatsAppResult> {
+    // Use conversation-based idempotency to prevent duplicate HOT alerts
+    const idempotencyKey = input.conversationId 
+      ? `hot_lead_${input.conversationId}_${input.leadId}`
+      : `hot_lead_manual_${input.leadId}_${Date.now()}`;
+
+    const previous = await this.messages.findByIdempotencyKey(idempotencyKey);
+    if (previous) {
+      console.log(`HOT lead WhatsApp already sent for lead ${input.leadId}, conversation ${input.conversationId}`);
+      return { message: previous, idempotent: true };
+    }
+
+    const message = this.generateHotLeadMessage(input);
+    
+    const pending = await this.messages.create({
+      leadId: input.leadId,
+      conversationId: input.conversationId,
+      type: "HOT_LEAD",
+      message,
+      idempotencyKey,
+    });
+
+    try {
+      console.log(`Sending HOT lead WhatsApp for lead ${input.leadId}`);
+      
+      const result = await this.provider.sendText({ 
+        to: input.leadData.phone, 
+        body: message, 
+        idempotencyKey 
+      });
+
+      const sent = await this.messages.markSent(pending.id, result.providerMessageId);
+      
+      console.log(`HOT lead WhatsApp sent successfully: ${result.providerMessageId}`);
+      return { message: sent, idempotent: false };
+    } catch (error) {
+      await this.messages.markFailed(pending.id);
+      console.error(`HOT lead WhatsApp failed for lead ${input.leadId}:`, error);
+      
+      if (isAppError(error)) throw error;
+      throw new IntegrationFailureError(this.provider.name, error);
+    }
+  }
+
+  /**
+   * Send contextual follow-up after call completes using conversation transcript
+   */
+  async sendFollowUpMessage(input: {
+    leadId: string;
+    conversationId?: string;
+    message: string;
+    mediaUrls?: string[];
+  }): Promise<SendWhatsAppResult> {
+    const lead = await this.leads.findById(input.leadId);
+    if (!lead) throw new NotFoundError("Lead");
+
+    const idempotencyKey = input.conversationId
+      ? `followup_${input.conversationId}`
+      : `followup_${input.leadId}_${Date.now()}`;
+
+    const previous = await this.messages.findByIdempotencyKey(idempotencyKey);
+    if (previous) return { message: previous, idempotent: true };
+
+    const pending = await this.messages.create({
+      leadId: input.leadId,
+      conversationId: input.conversationId,
+      type: "FOLLOW_UP",
+      message: input.message,
+      idempotencyKey,
+    });
+
+    try {
+      let result;
+      
+      if (input.mediaUrls && input.mediaUrls.length > 0) {
+        // Send first media with text, then additional media separately
+        result = await this.provider.sendMedia({ 
+          to: lead.phone, 
+          body: input.message, 
+          mediaUrl: input.mediaUrls[0],
+          idempotencyKey 
+        });
+
+        // Send additional media files
+        for (let i = 1; i < input.mediaUrls.length; i++) {
+          try {
+            await this.provider.sendMedia({
+              to: lead.phone,
+              body: "",
+              mediaUrl: input.mediaUrls[i],
+              idempotencyKey: `${idempotencyKey}_media_${i}`
+            });
+          } catch (error) {
+            console.warn(`Failed to send additional media ${i}:`, error);
+          }
+        }
+      } else {
+        result = await this.provider.sendText({ 
+          to: lead.phone, 
+          body: input.message, 
+          idempotencyKey 
+        });
+      }
+
+      return { message: await this.messages.markSent(pending.id, result.providerMessageId), idempotent: false };
+    } catch (error) {
+      await this.messages.markFailed(pending.id);
+      if (isAppError(error)) throw error;
+      throw new IntegrationFailureError(this.provider.name, error);
+    }
+  }
+
   async listForLead(leadId: string): Promise<WhatsAppMessageRecord[]> {
     const lead = await this.leads.findById(leadId);
     if (!lead) throw new NotFoundError("Lead");
     return this.messages.listForLead(leadId);
+  }
+
+  private generateHotLeadMessage(input: HotLeadWhatsAppInput): string {
+    const { leadData, discoveredInfo, language, salesContactPhone } = input;
+    
+    const contactNumber = salesContactPhone || "+91-9876543210";
+    const name = leadData.name || "Customer";
+
+    if (language === "HINDI") {
+      let message = `नमस्ते ${name}! 🙏\n\nआपकी e-commerce website की जरूरत को समझकर हमें खुशी हुई।`;
+      
+      if (discoveredInfo?.productType) {
+        message += `\n\n📦 उत्पाद: ${discoveredInfo.productType}`;
+      }
+      
+      if (discoveredInfo?.budget) {
+        message += `\n💰 बजट: ${discoveredInfo.budget}`;
+      }
+      
+      if (discoveredInfo?.timeline) {
+        message += `\n⏰ लॉन्च: ${discoveredInfo.timeline}`;
+      }
+
+      if (discoveredInfo?.requirements && discoveredInfo.requirements.length > 0) {
+        message += `\n\n✨ आवश्यकताएं: ${discoveredInfo.requirements.join(', ')}`;
+      }
+
+      message += `\n\nहम जल्दी ही एक detailed proposal share करेंगे।\n\n📞 Contact: ${contactNumber}\n\nTeam LeadPilot`;
+      
+      return message;
+    }
+
+    if (language === "TELUGU") {
+      let message = `నమస్కారం ${name}! 🙏\n\nమీ e-commerce website అవసరాలను అర్థం చేసుకోవడంలో మేము సంతోషిస్తున్నాము।`;
+      
+      if (discoveredInfo?.productType) {
+        message += `\n\n📦 ఉత్పత్తులు: ${discoveredInfo.productType}`;
+      }
+      
+      if (discoveredInfo?.budget) {
+        message += `\n💰 బడ్జెట్: ${discoveredInfo.budget}`;
+      }
+      
+      if (discoveredInfo?.timeline) {
+        message += `\n⏰ లాంచ్: ${discoveredInfo.timeline}`;
+      }
+
+      if (discoveredInfo?.requirements && discoveredInfo.requirements.length > 0) {
+        message += `\n\n✨ అవసరాలు: ${discoveredInfo.requirements.join(', ')}`;
+      }
+
+      message += `\n\nమేము త్వరలో detailed proposal పంపుతాము।\n\n📞 Contact: ${contactNumber}\n\nTeam LeadPilot`;
+      
+      return message;
+    }
+
+    // Default English
+    let message = `Hi ${name}! 👋\n\nGreat speaking with you about your e-commerce website needs.`;
+    
+    if (discoveredInfo?.productType) {
+      message += `\n\n📦 Products: ${discoveredInfo.productType}`;
+    }
+    
+    if (discoveredInfo?.budget) {
+      message += `\n💰 Budget: ${discoveredInfo.budget}`;
+    }
+    
+    if (discoveredInfo?.timeline) {
+      message += `\n⏰ Timeline: ${discoveredInfo.timeline}`;
+    }
+
+    if (discoveredInfo?.requirements && discoveredInfo.requirements.length > 0) {
+      message += `\n\n✨ Requirements: ${discoveredInfo.requirements.join(', ')}`;
+    }
+
+    message += `\n\nWe'll send you a detailed proposal shortly.\n\n📞 Contact: ${contactNumber}\n\nTeam LeadPilot`;
+    
+    return message;
   }
 }
