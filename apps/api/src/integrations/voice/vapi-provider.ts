@@ -25,36 +25,47 @@ export class VapiProvider implements VoiceProvider {
   readonly name = "vapi";
   private readonly apiKey: string;
   private readonly baseURL = "https://api.vapi.ai";
+  private readonly phoneNumberId?: string;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, phoneNumberId?: string) {
     this.apiKey = apiKey;
+    this.phoneNumberId = phoneNumberId;
   }
 
   async createOutboundCall(request: OutboundCallRequest): Promise<VoiceCall> {
     try {
+      const payload: any = {
+        assistantId: request.assistantId,
+        customer: {
+          number: request.to,
+        }
+      };
+
+      // Use phoneNumberId if provided, otherwise Vapi uses default from dashboard
+      if (this.phoneNumberId) {
+        payload.phoneNumberId = this.phoneNumberId;
+      }
+
+      console.log('🔵 Vapi Outbound Call Request:', JSON.stringify(payload, null, 2));
+
       const response = await fetch(`${this.baseURL}/call`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${this.apiKey}`,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({
-          type: "outboundPhoneCall",
-          phoneNumber: request.to,
-          assistantId: request.assistantId,
-          metadata: {
-            leadId: request.leadId,
-            ...request.metadata
-          }
-        })
+        body: JSON.stringify(payload)
       });
 
+      const responseText = await response.text();
+      console.log('🔵 Vapi Response:', { status: response.status, body: responseText });
+
       if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`Vapi call creation failed: ${response.status} ${error}`);
+        console.error('🔴 Vapi Error:', responseText);
+        throw new Error(`Vapi call creation failed: ${response.status} ${responseText}`);
       }
 
-      const call: VapiCall = await response.json();
+      const call: VapiCall = JSON.parse(responseText);
       
       return {
         providerCallId: call.id,

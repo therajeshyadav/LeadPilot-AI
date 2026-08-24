@@ -72,6 +72,8 @@ export class TwilioWhatsAppProvider implements WhatsAppProvider {
       formData.append(key, value);
     });
 
+    console.log('🔵 Twilio WhatsApp Request:', { to: body.To, from: body.From });
+
     const response = await fetch(this.baseURL, {
       method: 'POST',
       headers: {
@@ -82,12 +84,14 @@ export class TwilioWhatsAppProvider implements WhatsAppProvider {
     });
 
     const responseText = await response.text();
+    console.log('🔵 Twilio Response:', { status: response.status, body: responseText });
     
     if (!response.ok) {
       let errorMessage = `HTTP ${response.status}`;
       try {
         const errorData = JSON.parse(responseText);
         errorMessage = errorData.message || errorData.detail || errorMessage;
+        console.error('🔴 Twilio Error Details:', errorData);
       } catch {
         errorMessage = responseText || errorMessage;
       }

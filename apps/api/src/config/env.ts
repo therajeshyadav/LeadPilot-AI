@@ -15,6 +15,7 @@ const environmentSchema = z.object({
   VOICE_PROVIDER: z.enum(["vapi"]).default("vapi"),
   VOICE_API_KEY: z.string().min(1).optional(),
   VOICE_AGENT_ID: z.string().min(1).optional(),
+  VOICE_PHONE_NUMBER_ID: z.string().min(1).optional().or(z.literal("")),
   VOICE_WEBHOOK_SECRET: z.string().min(1).optional(),
   TWILIO_ACCOUNT_SID: z.string().min(1).optional(),
   TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
@@ -44,7 +45,11 @@ export function loadConfig(input: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = environmentSchema.safeParse(input);
 
   if (!parsed.success) {
-    throw new Error(`Invalid environment configuration: ${parsed.error.issues.map((issue) => issue.message).join(", ")}`);
+    console.error('Environment validation failed:');
+    parsed.error.issues.forEach(issue => {
+      console.error(`  - ${issue.path.join('.')}: ${issue.message}`);
+    });
+    throw new Error(`Invalid environment configuration: ${parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(", ")}`);
   }
 
   return {

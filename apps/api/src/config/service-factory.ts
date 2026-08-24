@@ -26,7 +26,12 @@ export function createConfiguredServices(config: AppConfig): AppServices {
 
   // Setup voice provider
   const voiceProvider = (config.VOICE_PROVIDER === "vapi" && config.VOICE_API_KEY)
-    ? new VapiProvider(config.VOICE_API_KEY)
+    ? new VapiProvider(
+        config.VOICE_API_KEY,
+        config.VOICE_PHONE_NUMBER_ID && config.VOICE_PHONE_NUMBER_ID.length > 0 
+          ? config.VOICE_PHONE_NUMBER_ID 
+          : undefined
+      )
     : new UnavailableVoiceProvider();
 
   // Setup WhatsApp provider
