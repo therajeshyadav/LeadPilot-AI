@@ -40,15 +40,30 @@ export class VoiceService {
 
     const event = await this.voiceProvider.parseAndVerifyWebhook(rawBody, headers);
     
+    console.log(`📥 Webhook received: ${event.type} for call ${event.providerCallId}`);
+    
+    // Map Vapi event names to our internal event types
+    const eventTypeMap: Record<string, string> = {
+      'conversation-update': 'transcript_received',
+      'speech-update': 'transcript_received',
+      'end-of-call-report': 'call_ended',
+      'status-update': 'call_ended',
+      'hang': 'call_ended',
+    };
+
+    const mappedType = eventTypeMap[event.type] || event.type;
+    
     // Find conversation by provider call ID
     const conversation = await this.conversations.findByProviderCallId(event.providerCallId);
     if (!conversation) {
-      console.warn(`No conversation found for call ID: ${event.providerCallId}`);
+      console.warn(`⚠️ No conversation found for call ID: ${event.providerCallId} (event: ${event.type})`);
       return;
     }
 
+    console.log(`✅ Conversation found: ${conversation.id} for lead ${conversation.leadId}`);
+
     // Handle different event types
-    switch (event.type) {
+    switch (mappedType) {
       case "call_started":
         await this.handleCallStarted(conversation.id, event);
         break;
@@ -59,7 +74,7 @@ export class VoiceService {
         await this.handleCallEnded(conversation.id, event);
         break;
       default:
-        console.log(`Unhandled voice event type: ${event.type}`);
+        console.log(`ℹ️ Unhandled voice event type: ${event.type} (mapped: ${mappedType})`);
     }
   }
 

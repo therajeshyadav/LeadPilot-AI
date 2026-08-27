@@ -138,14 +138,26 @@ export class VapiProvider implements VoiceProvider {
         throw new Error("Invalid Vapi webhook payload");
       }
 
-      const detectedLanguage = this.detectLanguageFromTranscript(message.transcript);
+      // Extract transcript from message or conversation array
+      let transcript = message.transcript;
+      
+      // For conversation-update events, build full transcript from messages
+      if (message.type === 'conversation-update' && body.message && (body.message as any).messages) {
+        const messages = (body.message as any).messages as Array<{role: string, message: string}>;
+        transcript = messages
+          .filter(m => m.role === 'user' || m.role === 'assistant')
+          .map(m => `${m.role === 'user' ? 'Customer' : 'Agent'}: ${m.message}`)
+          .join('\n');
+      }
+
+      const detectedLanguage = this.detectLanguageFromTranscript(transcript);
 
       return {
         eventId: `vapi_${message.call.id}_${Date.now()}`,
         type: message.type,
         providerCallId: message.call.id,
         occurredAt: new Date(message.timestamp || Date.now()),
-        transcript: message.transcript,
+        transcript: transcript,
         detectedLanguage,
         payload: body
       };
