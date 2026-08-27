@@ -13,5 +13,6 @@ export interface LeadIntelligenceProvider {
   extractDiscovery(text: string): Promise<UpdateLeadDiscoveryInput>;
   qualifyConversation(input: { transcript: string; currentLead: UpdateLeadDiscoveryInput }): Promise<LeadQualification>;
   generateFollowUp(input: { name?: string; language: SupportedLanguage; transcript: string }): Promise<string>;
+  generateHotLeadMessage(input: { name?: string; language: SupportedLanguage; transcript: string; discoveredInfo?: { budget?: string; productType?: string; timeline?: string; requirements?: string[] } }): Promise<string>;
   detectCallbackIntent(transcript: string, language: SupportedLanguage): Promise<CallbackIntent>;
 }

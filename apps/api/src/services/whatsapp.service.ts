@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { SendWhatsAppInput, SupportedLanguage } from "@leadpilot/shared";
 
 import type { WhatsAppProvider } from "../integrations/whatsapp/whatsapp-provider.js";
+import type { LeadIntelligenceProvider } from "../integrations/openai/lead-intelligence-provider.js";
 import type { LeadRepository, WhatsAppMessageRepository } from "../repositories/contracts.js";
 import type { LeadRecord, WhatsAppMessageRecord } from "../types/domain.js";
 import { IntegrationFailureError, NotFoundError, isAppError } from "../utils/errors.js";
@@ -16,6 +17,7 @@ export interface HotLeadWhatsAppInput {
   leadId: string;
   conversationId?: string;
   leadData: LeadRecord;
+  transcript: string;
   discoveredInfo?: {
     budget?: string;
     productType?: string;
@@ -31,6 +33,7 @@ export class WhatsAppService {
     private readonly messages: WhatsAppMessageRepository,
     private readonly leads: LeadRepository,
     private readonly provider: WhatsAppProvider,
+    private readonly intelligence?: LeadIntelligenceProvider,
   ) {}
 
   async send(leadId: string, input: SendWhatsAppInput): Promise<SendWhatsAppResult> {
@@ -64,6 +67,7 @@ export class WhatsAppService {
   /**
    * CRITICAL: Send immediate WhatsApp when lead becomes HOT during live call
    * This must execute DURING the call, not after it ends
+   * Messages are AI-generated based on actual conversation transcript
    */
   async sendHotLeadAlert(input: HotLeadWhatsAppInput): Promise<SendWhatsAppResult> {
     // Use conversation-based idempotency to prevent duplicate HOT alerts
@@ -77,7 +81,8 @@ export class WhatsAppService {
       return { message: previous, idempotent: true };
     }
 
-    const message = this.generateHotLeadMessage(input);
+    // Generate AI-based message from actual conversation
+    const message = await this.generateHotLeadMessage(input);
     
     const pending = await this.messages.create({
       leadId: input.leadId,
@@ -183,7 +188,34 @@ export class WhatsAppService {
     return this.messages.listForLead(leadId);
   }
 
-  private generateHotLeadMessage(input: HotLeadWhatsAppInput): string {
+  /**
+   * Generate AI-powered HOT lead message based on actual conversation
+   */
+  private async generateHotLeadMessage(input: HotLeadWhatsAppInput): Promise<string> {
+    if (!this.intelligence) {
+      // Fallback if AI not available
+      return this.generateFallbackHotLeadMessage(input);
+    }
+
+    try {
+      const message = await this.intelligence.generateHotLeadMessage({
+        name: input.leadData.name ?? undefined,
+        language: input.language,
+        transcript: input.transcript,
+        discoveredInfo: input.discoveredInfo
+      });
+
+      return message;
+    } catch (error) {
+      console.error("AI HOT lead message generation failed, using fallback:", error);
+      return this.generateFallbackHotLeadMessage(input);
+    }
+  }
+
+  /**
+   * Fallback template-based message if AI fails
+   */
+  private generateFallbackHotLeadMessage(input: HotLeadWhatsAppInput): string {
     const { leadData, discoveredInfo, language, salesContactPhone } = input;
     
     const contactNumber = salesContactPhone || "+91-9876543210";
@@ -208,7 +240,7 @@ export class WhatsAppService {
         message += `\n\n✨ आवश्यकताएं: ${discoveredInfo.requirements.join(', ')}`;
       }
 
-      message += `\n\nहम जल्दी ही एक detailed proposal share करेंगे।\n\n📞 Contact: ${contactNumber}\n\nTeam LeadPilot`;
+      message += `\n\nहम जल्दी ही detailed proposal share करेंगे।\n\n📞 Contact: ${contactNumber}\n\nTeam LeadPilot`;
       
       return message;
     }

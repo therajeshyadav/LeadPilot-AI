@@ -175,6 +175,85 @@ Current lead info: ${JSON.stringify(input.currentLead, null, 2)}`
     }
   }
 
+  async generateHotLeadMessage(input: { name?: string; language: SupportedLanguage; transcript: string; discoveredInfo?: { budget?: string; productType?: string; timeline?: string; requirements?: string[] } }): Promise<string> {
+    try {
+      const languagePrompts = {
+        ENGLISH: "Generate an urgent WhatsApp message in English for a HOT lead",
+        HINDI: "Generate an urgent WhatsApp message in Hindi (Devanagari script) for a HOT lead",
+        TELUGU: "Generate an urgent WhatsApp message in Telugu script for a HOT lead",
+        UNKNOWN: "Generate an urgent WhatsApp message in English for a HOT lead"
+      };
+
+      const discoveryContext = input.discoveredInfo ? `
+
+Discovered Information:
+- Product Type: ${input.discoveredInfo.productType || "Not specified"}
+- Budget: ${input.discoveredInfo.budget || "Not specified"}
+- Timeline: ${input.discoveredInfo.timeline || "Not specified"}
+- Requirements: ${input.discoveredInfo.requirements?.join(", ") || "Not specified"}` : "";
+
+      const response = await this.callOpenAI({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `${languagePrompts[input.language]}.
+
+This customer has shown STRONG buying intent during the live call.
+
+Create a personalized message that:
+1. Acknowledges their specific requirements mentioned in the conversation
+2. References their product type, budget, timeline if discussed
+3. Shows urgency and excitement about their project
+4. Mentions next steps (proposal coming soon)
+5. Includes contact: +91-9876543210
+6. Professional but enthusiastic tone
+7. Keep it 3-4 sentences max
+8. Use emojis appropriately (📦 💰 ⏰ ✨ 👋)
+
+CRITICAL: Only reference information that was ACTUALLY mentioned in the conversation. Do NOT invent details.`
+          },
+          {
+            role: "user",
+            content: `Customer name: ${input.name || "Customer"}
+Conversation transcript: ${input.transcript}${discoveryContext}`
+          }
+        ],
+        max_tokens: 250,
+        temperature: 0.4
+      });
+
+      const generatedMessage = response.choices[0]?.message?.content?.trim();
+      
+      if (generatedMessage) {
+        return generatedMessage;
+      }
+
+      // Fallback if AI fails
+      const name = input.name || "Customer";
+      if (input.language === "HINDI") {
+        return `नमस्ते ${name}! 🙏\n\nआपकी e-commerce website की जरूरत को समझकर हमें खुशी हुई। हम जल्द ही detailed proposal share करेंगे।\n\n📞 Contact: +91-9876543210\n\nTeam LeadPilot`;
+      }
+      if (input.language === "TELUGU") {
+        return `నమస్కారం ${name}! 🙏\n\nమీ e-commerce website అవసరాలను అర్థం చేసుకోవడంలో మేము సంతోషిస్తున్నాము। త్వరలో detailed proposal పంపుతాము।\n\n📞 Contact: +91-9876543210\n\nTeam LeadPilot`;
+      }
+      return `Hi ${name}! 👋\n\nGreat speaking with you about your e-commerce needs. We'll send a detailed proposal shortly.\n\n📞 Contact: +91-9876543210\n\nTeam LeadPilot`;
+      
+    } catch (error) {
+      console.error("HOT lead message generation failed:", error);
+      
+      // Fallback template
+      const name = input.name || "Customer";
+      if (input.language === "HINDI") {
+        return `नमस्ते ${name}! 🙏\n\nआपकी e-commerce website की जरूरत को समझकर हमें खुशी हुई। हम जल्द ही detailed proposal share करेंगे।\n\n📞 Contact: +91-9876543210\n\nTeam LeadPilot`;
+      }
+      if (input.language === "TELUGU") {
+        return `నమస్కారం ${name}! 🙏\n\nమీ e-commerce website అవసరాలను అర్థం చేసుకోవడంలో మేము సంతోషిస్తున్నాము। త్వరలో detailed proposal పంపుతాము।\n\n📞 Contact: +91-9876543210\n\nTeam LeadPilot`;
+      }
+      return `Hi ${name}! 👋\n\nGreat speaking with you about your e-commerce needs. We'll send a detailed proposal shortly.\n\n📞 Contact: +91-9876543210\n\nTeam LeadPilot`;
+    }
+  }
+
   async generateFollowUp(input: { name?: string; language: SupportedLanguage; transcript: string }): Promise<string> {
     try {
       const languagePrompts = {

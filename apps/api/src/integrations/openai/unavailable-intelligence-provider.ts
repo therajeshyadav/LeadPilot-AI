@@ -26,6 +26,11 @@ export class UnavailableIntelligenceProvider implements LeadIntelligenceProvider
     };
   }
 
+  async generateHotLeadMessage(input: { name?: string; language: SupportedLanguage; transcript: string; discoveredInfo?: { budget?: string; productType?: string; timeline?: string; requirements?: string[] } }): Promise<string> {
+    const name = input.name || "Customer";
+    return `Hi ${name}, thank you for your interest in our e-commerce development services. We'll send you a proposal shortly.`;
+  }
+
   async generateFollowUp(input: { name?: string; language: SupportedLanguage; transcript: string }): Promise<string> {
     return `Hi ${input.name || ""}, thank you for your interest in our services. We'll be in touch soon.`;
   }

@@ -82,6 +82,7 @@ export function createLeadsController(services: AppServices): {
         const result = await services.whatsapp.sendHotLeadAlert({
           leadId: id,
           leadData: lead,
+          transcript: "Manual HOT lead alert triggered via API", // Manual trigger
           language: lead.language,
           salesContactPhone: process.env.SALES_CONTACT_PHONE,
         });

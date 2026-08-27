@@ -36,7 +36,8 @@ describe("Calendar & Callback Integration", () => {
         signals: { buyingIntent: "", budget: "", timeline: "", requirements: "" },
       }),
       generateFollowUp: vi.fn().mockResolvedValue("Thank you for your interest!"),
-      detectCallbackIntent: vi.fn(),
+      generateHotLeadMessage: vi.fn().mockResolvedValue("Hi! We'll send you a proposal shortly!"),
+      detectCallbackIntent: vi.fn().mockResolvedValue({ requested: false }), // Default: no callback
     };
 
     mockVoiceProvider = {
@@ -127,12 +128,17 @@ describe("Calendar & Callback Integration", () => {
     });
 
     it("should handle explicit date/time callback request", async () => {
+      // Use tomorrow's date to avoid past date issue
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = tomorrow.toISOString().split('T')[0]; // YYYY-MM-DD
+      
       (mockIntelligenceProvider.detectCallbackIntent as any).mockResolvedValue({
         requested: true,
-        date: "2026-08-25",
+        date: tomorrowStr,
         timeOfDay: "specific",
         specificTime: "17:00",
-        originalText: "Call me on Monday at 5 PM",
+        originalText: "Call me tomorrow at 5 PM",
       } as CallbackIntent);
 
       const lead = await repositories.leads.create({
@@ -152,7 +158,7 @@ describe("Calendar & Callback Integration", () => {
         type: "transcript_received",
         providerCallId: "call_123",
         occurredAt: new Date(),
-        transcript: "Call me on Monday at 5 PM to discuss the project details and pricing.",
+        transcript: "Call me tomorrow at 5 PM to discuss the project details and pricing.",
       };
 
       await voiceService.handleWebhookEvent(

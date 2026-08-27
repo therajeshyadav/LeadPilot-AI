@@ -263,12 +263,13 @@ export class VoiceService {
         // Extract latest discovery info from transcript
         const discoveredInfo = await this.intelligence.extractDiscovery(transcript);
 
-        // Send immediate HOT lead WhatsApp
+        // Send immediate HOT lead WhatsApp with full conversation context
         try {
           const result = await this.whatsapp.sendHotLeadAlert({
             leadId,
             conversationId,
             leadData: lead,
+            transcript, // Pass full transcript for AI message generation
             discoveredInfo: {
               budget: discoveredInfo.budget,
               productType: discoveredInfo.productType,

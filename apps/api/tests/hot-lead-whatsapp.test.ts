@@ -32,6 +32,8 @@ describe("HOT Lead WhatsApp Integration", () => {
       }),
       qualifyConversation: vi.fn(),
       generateFollowUp: vi.fn().mockResolvedValue("Thank you for your interest!"),
+      generateHotLeadMessage: vi.fn().mockResolvedValue("Hi! Great speaking with you about your e-commerce needs. We'll send a proposal shortly! 📞 +91-9876543210"),
+      detectCallbackIntent: vi.fn().mockResolvedValue({ requested: false }),
     };
 
     mockVoiceProvider = {
@@ -60,7 +62,8 @@ describe("HOT Lead WhatsApp Integration", () => {
     whatsappService = new WhatsAppService(
       repositories.whatsappMessages,
       repositories.leads,
-      mockWhatsAppProvider
+      mockWhatsAppProvider,
+      mockIntelligenceProvider
     );
 
     voiceService = new VoiceService(
@@ -80,10 +83,16 @@ describe("HOT Lead WhatsApp Integration", () => {
         language: "ENGLISH",
       });
 
+      // Mock AI-generated message
+      vi.mocked(mockIntelligenceProvider.generateHotLeadMessage).mockResolvedValue(
+        "Hi John Doe! 👋 Great discussing your Electronics e-commerce needs with budget $5000-10000 for next month. We'll send a proposal shortly! 📞 +91-9876543210"
+      );
+
       const result = await whatsappService.sendHotLeadAlert({
         leadId: lead.id,
         conversationId: "conv_123",
         leadData: lead,
+        transcript: "Customer: I need an e-commerce website for electronics. Budget is $5000-10000, need it next month.",
         discoveredInfo: {
           budget: "$5000-10000",
           productType: "Electronics",
@@ -95,18 +104,17 @@ describe("HOT Lead WhatsApp Integration", () => {
       });
 
       expect(result.idempotent).toBe(false);
+      expect(mockIntelligenceProvider.generateHotLeadMessage).toHaveBeenCalledWith({
+        name: "John Doe",
+        language: "ENGLISH",
+        transcript: expect.any(String),
+        discoveredInfo: expect.any(Object)
+      });
       expect(mockWhatsAppProvider.sendText).toHaveBeenCalledWith({
         to: "+919876543210",
-        body: expect.stringContaining("Hi John Doe!"),
+        body: expect.stringContaining("John Doe"),
         idempotencyKey: "hot_lead_conv_123_" + lead.id,
       });
-
-      const sentMessage = (mockWhatsAppProvider.sendText as any).mock.calls[0][0].body;
-      expect(sentMessage).toContain("Electronics");
-      expect(sentMessage).toContain("$5000-10000");
-      expect(sentMessage).toContain("Next month");
-      expect(sentMessage).toContain("payment gateway, inventory management");
-      expect(sentMessage).toContain("+91-9876543210");
     });
 
     it("should prevent duplicate HOT lead WhatsApp for same conversation", async () => {
@@ -116,10 +124,13 @@ describe("HOT Lead WhatsApp Integration", () => {
         language: "ENGLISH",
       });
 
+      vi.mocked(mockIntelligenceProvider.generateHotLeadMessage).mockResolvedValue("Test message");
+
       const input = {
         leadId: lead.id,
         conversationId: "conv_duplicate",
         leadData: lead,
+        transcript: "Test conversation",
         language: "ENGLISH" as const,
       };
 
@@ -141,9 +152,14 @@ describe("HOT Lead WhatsApp Integration", () => {
         language: "HINDI",
       });
 
+      vi.mocked(mockIntelligenceProvider.generateHotLeadMessage).mockResolvedValue(
+        "नमस्ते राहुल! 🙏 आपकी कपड़े की e-commerce website की बात करके खुशी हुई। बजट ₹50,000 के साथ हम detailed proposal भेजेंगे। 📞 +91-9876543210"
+      );
+
       await whatsappService.sendHotLeadAlert({
         leadId: lead.id,
         leadData: lead,
+        transcript: "Customer spoke in Hindi about clothing products with 50k budget",
         discoveredInfo: {
           productType: "कपड़े",
           budget: "₹50,000",
@@ -151,11 +167,12 @@ describe("HOT Lead WhatsApp Integration", () => {
         language: "HINDI",
       });
 
-      const sentMessage = (mockWhatsAppProvider.sendText as any).mock.calls[0][0].body;
-      expect(sentMessage).toContain("नमस्ते राहुल!");
-      expect(sentMessage).toContain("कपड़े");
-      expect(sentMessage).toContain("₹50,000");
-      expect(sentMessage).toContain("detailed proposal");
+      expect(mockIntelligenceProvider.generateHotLeadMessage).toHaveBeenCalledWith({
+        name: "राहुल",
+        language: "HINDI",
+        transcript: expect.any(String),
+        discoveredInfo: expect.any(Object)
+      });
     });
 
     it("should generate Telugu WhatsApp message for Telugu-speaking lead", async () => {
@@ -165,18 +182,26 @@ describe("HOT Lead WhatsApp Integration", () => {
         language: "TELUGU",
       });
 
+      vi.mocked(mockIntelligenceProvider.generateHotLeadMessage).mockResolvedValue(
+        "నమస్కారం రామ్! 🙏 మీ వస్త్రాలు e-commerce website గురించి మాట్లాడడం సంతోషంగా ఉంది। త్వరలో proposal పంపుతాము। 📞 +91-9876543210"
+      );
+
       await whatsappService.sendHotLeadAlert({
         leadId: lead.id,
         leadData: lead,
+        transcript: "Customer spoke in Telugu about clothing",
         discoveredInfo: {
           productType: "వస్త్రాలు",
         },
         language: "TELUGU",
       });
 
-      const sentMessage = (mockWhatsAppProvider.sendText as any).mock.calls[0][0].body;
-      expect(sentMessage).toContain("నమస్కారం రామ్!");
-      expect(sentMessage).toContain("వస్త్రాలు");
+      expect(mockIntelligenceProvider.generateHotLeadMessage).toHaveBeenCalledWith({
+        name: "రామ్",
+        language: "TELUGU",
+        transcript: expect.any(String),
+        discoveredInfo: expect.any(Object)
+      });
     });
 
     it("should handle missing lead information gracefully", async () => {
@@ -185,9 +210,14 @@ describe("HOT Lead WhatsApp Integration", () => {
         language: "ENGLISH",
       });
 
+      vi.mocked(mockIntelligenceProvider.generateHotLeadMessage).mockResolvedValue(
+        "Hi Customer! We'll send you details shortly. 📞 +91-9876543210"
+      );
+
       await whatsappService.sendHotLeadAlert({
         leadId: lead.id,
         leadData: lead,
+        transcript: "Brief conversation",
         language: "ENGLISH",
       });
 
@@ -246,10 +276,13 @@ describe("HOT Lead WhatsApp Integration", () => {
       expect(mockWhatsAppProvider.sendText).toHaveBeenCalledWith(
         expect.objectContaining({
           to: "+919876543210",
-          body: expect.stringContaining("Hi Test Customer!"),
+          body: expect.any(String), // AI-generated message
           idempotencyKey: `hot_lead_${conversation.id}_${lead.id}`,
         })
       );
+
+      // Verify AI was called to generate message
+      expect(mockIntelligenceProvider.generateHotLeadMessage).toHaveBeenCalled();
 
       // Verify lead status was updated to HOT
       const updatedLead = await repositories.leads.findById(lead.id);
