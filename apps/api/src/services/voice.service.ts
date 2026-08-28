@@ -6,6 +6,10 @@ import type { WhatsAppService } from "./whatsapp.service.js";
 import type { CallbackService } from "./callback.service.js";
 
 export class VoiceService {
+  // Track last HOT check timestamp per conversation to throttle AI calls
+  private lastHotCheckTimestamp: Map<string, number> = new Map();
+  private readonly HOT_CHECK_COOLDOWN_MS = 30000; // Check every 30 seconds max
+
   constructor(
     private readonly conversations: ConversationRepository,
     private readonly leads: LeadRepository,
@@ -123,13 +127,20 @@ export class VoiceService {
         });
       }
 
-      // CRITICAL: Mid-call HOT lead detection and immediate WhatsApp
-      if (this.intelligence && this.whatsapp && event.transcript.length > 100) {
+      // ⚡ SMART MID-CALL DETECTION with throttling
+      // HOT lead check: Only every 30 seconds to balance speed vs API cost
+      // Callback detection: Once when enough context (50+ chars)
+      const now = Date.now();
+      const lastCheck = this.lastHotCheckTimestamp.get(conversationId) || 0;
+      const shouldCheckHot = (now - lastCheck) >= this.HOT_CHECK_COOLDOWN_MS;
+
+      if (this.intelligence && this.whatsapp && event.transcript.length > 100 && shouldCheckHot) {
+        this.lastHotCheckTimestamp.set(conversationId, now);
         await this.checkForHotLeadAndSendWhatsApp(conversation.leadId, conversationId, event.transcript, detectedLanguage || "UNKNOWN");
       }
 
-      // Detect callback intent and schedule if requested
-      if (this.intelligence && this.callbacks && event.transcript.length > 50) {
+      // Callback intent: Check only once when we have enough context
+      if (this.intelligence && this.callbacks && event.transcript.length > 50 && !lastCheck) {
         await this.checkForCallbackIntent(conversation.leadId, conversationId, event.transcript, detectedLanguage || "UNKNOWN");
       }
 
@@ -303,6 +314,9 @@ export class VoiceService {
   private async handleCallEnded(conversationId: string, event: VoiceWebhookEvent): Promise<void> {
     const conversation = await this.conversations.findById(conversationId);
     if (!conversation) return;
+
+    // Cleanup throttling state for this conversation
+    this.lastHotCheckTimestamp.delete(conversationId);
 
     // Update conversation with end details
     await this.conversations.update(conversationId, {
