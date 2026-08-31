@@ -71,7 +71,20 @@ class PrismaLeadRepository implements LeadRepository {
   }
 
   async updateDiscovery(id: string, input: UpdateLeadDiscoveryInput): Promise<LeadRecord> {
-    return asLead(await this.db.lead.update({ where: { id }, data: input }));
+    // Explicitly pick only columns that exist in the Prisma Lead model.
+    // This prevents AI-generated fields (e.g. "timeline", "painPoints", "companyInfo")
+    // from causing PrismaClientValidationError at runtime.
+    const safeData: Record<string, unknown> = {};
+    if (input.name !== undefined) safeData.name = input.name;
+    if (input.language !== undefined) safeData.language = input.language;
+    if (input.budget !== undefined) safeData.budget = input.budget;
+    if (input.productType !== undefined) safeData.productType = input.productType;
+    if (input.productCount !== undefined) safeData.productCount = input.productCount;
+    if (input.launchTimeline !== undefined) safeData.launchTimeline = input.launchTimeline;
+    if (input.requiredFeatures !== undefined) safeData.requiredFeatures = input.requiredFeatures;
+    if (input.notes !== undefined) safeData.notes = input.notes;
+
+    return asLead(await this.db.lead.update({ where: { id }, data: safeData }));
   }
 
   async setStatus(id: string, leadStatus: LeadStatus): Promise<LeadRecord> {

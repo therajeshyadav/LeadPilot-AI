@@ -79,7 +79,22 @@ describe("Calendar & Callback Integration", () => {
     );
   });
 
+  // Helper: send an end-of-call-report event to trigger post-call processing (callback detection)
+  async function sendCallEndEvent(providerCallId: string, transcript: string) {
+    const endEvent = {
+      type: "end-of-call-report",
+      providerCallId,
+      occurredAt: new Date(),
+      transcript,
+    };
+    await voiceService.handleWebhookEvent(
+      Buffer.from(JSON.stringify({ message: { type: endEvent.type, call: { id: endEvent.providerCallId }, timestamp: endEvent.occurredAt.toISOString(), transcript: endEvent.transcript } })),
+      {}
+    );
+  }
+
   describe("Callback Intent Detection", () => {
+
     it("should detect callback intent and schedule callback", async () => {
       // Mock callback intent detection
       const tomorrow = new Date();
@@ -117,6 +132,9 @@ describe("Calendar & Callback Integration", () => {
         Buffer.from(JSON.stringify({ message: { type: event.type, call: { id: event.providerCallId }, timestamp: event.occurredAt.toISOString(), transcript: event.transcript } })),
         {}
       );
+
+      // Trigger call end to run post-call callback detection
+      await sendCallEndEvent("call_123", event.transcript);
 
       // Verify callback was created
       const callbacks = await repositories.callbacks.list({ limit: 10, offset: 0, leadId: lead.id });
@@ -166,6 +184,9 @@ describe("Calendar & Callback Integration", () => {
         {}
       );
 
+      // Trigger call end to run post-call callback detection
+      await sendCallEndEvent("call_123", event.transcript);
+
       const callbacks = await repositories.callbacks.list({ limit: 10, offset: 0, leadId: lead.id });
       expect(callbacks.items).toHaveLength(1);
       
@@ -202,13 +223,16 @@ describe("Calendar & Callback Integration", () => {
         type: "transcript_received",
         providerCallId: "call_123",
         occurredAt: new Date(),
-        transcript: "Please call me tomorrow morning to discuss this further.",
+        transcript: "I would like to discuss more about this. Can you call me tomorrow morning to talk about e-commerce features?",
       };
 
       await voiceService.handleWebhookEvent(
         Buffer.from(JSON.stringify({ message: { type: event.type, call: { id: event.providerCallId }, timestamp: event.occurredAt.toISOString(), transcript: event.transcript } })),
         {}
       );
+
+      // Trigger call end to run post-call callback detection
+      await sendCallEndEvent("call_123", event.transcript);
 
       const callbacks = await repositories.callbacks.list({ limit: 10, offset: 0, leadId: lead.id });
       expect(callbacks.items).toHaveLength(1);
@@ -253,6 +277,9 @@ describe("Calendar & Callback Integration", () => {
         {}
       );
 
+      // Trigger call end to run post-call callback detection
+      await sendCallEndEvent("call_123", event.transcript);
+
       const callbacks = await repositories.callbacks.list({ limit: 10, offset: 0, leadId: lead.id });
       expect(callbacks.items).toHaveLength(1);
       
@@ -288,13 +315,16 @@ describe("Calendar & Callback Integration", () => {
         type: "transcript_received",
         providerCallId: "call_123",
         occurredAt: new Date(),
-        transcript: "Can we connect tomorrow evening? I'll be free after work.",
+        transcript: "This sounds interesting. Can you call me tomorrow evening when I'm done with work? That would work better for my schedule.",
       };
 
       await voiceService.handleWebhookEvent(
         Buffer.from(JSON.stringify({ message: { type: event.type, call: { id: event.providerCallId }, timestamp: event.occurredAt.toISOString(), transcript: event.transcript } })),
         {}
       );
+
+      // Trigger call end to run post-call callback detection
+      await sendCallEndEvent("call_123", event.transcript);
 
       const callbacks = await repositories.callbacks.list({ limit: 10, offset: 0, leadId: lead.id });
       expect(callbacks.items).toHaveLength(1);
@@ -378,6 +408,9 @@ describe("Calendar & Callback Integration", () => {
         {}
       )).resolves.toBeUndefined();
 
+      // Trigger call end to run post-call callback detection
+      await sendCallEndEvent("call_123", event.transcript);
+
       // Callback should still be created in database
       const callbacks = await repositories.callbacks.list({ limit: 10, offset: 0, leadId: lead.id });
       expect(callbacks.items).toHaveLength(1);
@@ -419,6 +452,9 @@ describe("Calendar & Callback Integration", () => {
         Buffer.from(JSON.stringify({ message: { type: event.type, call: { id: event.providerCallId }, timestamp: event.occurredAt.toISOString(), transcript: event.transcript } })),
         {}
       );
+
+      // Trigger call end to run post-call callback detection
+      await sendCallEndEvent("call_123", event.transcript);
 
       const callbacks = await repositories.callbacks.list({ limit: 10, offset: 0, leadId: lead.id });
       expect(callbacks.items).toHaveLength(1);
@@ -462,6 +498,9 @@ describe("Calendar & Callback Integration", () => {
         {}
       );
 
+      // Trigger call end to run post-call callback detection
+      await sendCallEndEvent("call_123", event.transcript);
+
       const callbacks = await repositories.callbacks.list({ limit: 10, offset: 0, leadId: lead.id });
       expect(callbacks.items).toHaveLength(1);
       expect(callbacks.items[0].sourceText).toContain("రేపు సాయంత్రం నాకు ఫోన్ చేయండి");
@@ -502,6 +541,9 @@ describe("Calendar & Callback Integration", () => {
         Buffer.from(JSON.stringify({ message: { type: event.type, call: { id: event.providerCallId }, timestamp: event.occurredAt.toISOString(), transcript: event.transcript } })),
         {}
       );
+
+      // Trigger call end to run post-call callback detection
+      await sendCallEndEvent("call_123", event.transcript);
 
       const callbacks = await repositories.callbacks.list({ limit: 10, offset: 0, leadId: lead.id });
       expect(callbacks.items).toHaveLength(1);

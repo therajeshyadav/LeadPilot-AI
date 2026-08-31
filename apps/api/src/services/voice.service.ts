@@ -129,7 +129,6 @@ export class VoiceService {
 
       // ⚡ SMART MID-CALL DETECTION with throttling
       // HOT lead check: Only every 30 seconds to balance speed vs API cost
-      // Callback detection: Once when enough context (50+ chars)
       const now = Date.now();
       const lastCheck = this.lastHotCheckTimestamp.get(conversationId) || 0;
       const shouldCheckHot = (now - lastCheck) >= this.HOT_CHECK_COOLDOWN_MS;
@@ -137,11 +136,6 @@ export class VoiceService {
       if (this.intelligence && this.whatsapp && event.transcript.length > 100 && shouldCheckHot) {
         this.lastHotCheckTimestamp.set(conversationId, now);
         await this.checkForHotLeadAndSendWhatsApp(conversation.leadId, conversationId, event.transcript, detectedLanguage || "UNKNOWN");
-      }
-
-      // Callback intent: Check only once when we have enough context
-      if (this.intelligence && this.callbacks && event.transcript.length > 50 && !lastCheck) {
-        await this.checkForCallbackIntent(conversation.leadId, conversationId, event.transcript, detectedLanguage || "UNKNOWN");
       }
 
       console.log(`Transcript received for call: ${event.providerCallId}`);
@@ -311,7 +305,17 @@ export class VoiceService {
     }
   }
 
+  // Track processed call_ended events to prevent duplicate processing
+  private processedCallEnds: Set<string> = new Set();
+
   private async handleCallEnded(conversationId: string, event: VoiceWebhookEvent): Promise<void> {
+    // Deduplicate: Vapi sends both 'status-update' and 'end-of-call-report' for the same call
+    if (this.processedCallEnds.has(conversationId)) {
+      console.log(`⏭️ Call end already processed for ${conversationId}, skipping duplicate`);
+      return;
+    }
+    this.processedCallEnds.add(conversationId);
+
     const conversation = await this.conversations.findById(conversationId);
     if (!conversation) return;
 
@@ -332,12 +336,19 @@ export class VoiceService {
       await this.checkAndCompleteCallback(event.providerCallId);
     }
 
+    // Use the transcript from the event (end-of-call-report has the final transcript)
+    // or fall back to what was stored on the conversation
+    const transcript = event.transcript || conversation.transcript;
+
     // Trigger post-call processing if we have AI and transcript
-    if (this.intelligence && conversation.transcript) {
-      await this.processCallEnded(conversation.leadId, conversationId, conversation.transcript, conversation.detectedLanguage);
+    if (this.intelligence && transcript) {
+      await this.processCallEnded(conversation.leadId, conversationId, transcript, conversation.detectedLanguage);
     }
 
     console.log(`Call ended: ${event.providerCallId}`);
+
+    // Cleanup deduplication after a delay (free memory)
+    setTimeout(() => this.processedCallEnds.delete(conversationId), 60000);
   }
 
   /**
@@ -369,6 +380,11 @@ export class VoiceService {
       // Update lead with discovered information
       if (Object.keys(discovery).length > 0) {
         await this.leads.updateDiscovery(leadId, discovery);
+      }
+
+      // Detect callback intent from the FULL transcript (most reliable)
+      if (this.callbacks) {
+        await this.checkForCallbackIntent(leadId, conversationId, transcript, language);
       }
 
       // Send contextual follow-up WhatsApp using AI-generated message

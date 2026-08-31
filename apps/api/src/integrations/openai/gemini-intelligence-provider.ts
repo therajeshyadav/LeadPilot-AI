@@ -59,13 +59,15 @@ Language:`;
     try {
       const prompt = `Extract key information from this sales conversation transcript and return ONLY a valid JSON object. DO NOT include any markdown formatting, code blocks, or explanations.
 
-Extract:
-- budget: any monetary amount mentioned or budget discussion
-- productType: what product/service they're interested in
-- timeline: when they want to buy/implement
-- requirements: array of specific requirements mentioned
-- painPoints: array of problems/challenges they mentioned
-- companyInfo: any company details like name, size, industry
+Extract these EXACT fields:
+- budget: string or null (any monetary amount mentioned or budget discussion)
+- productType: string or null (what product/service they're interested in)
+- productCount: number or null (approximate number of products/SKUs)
+- launchTimeline: string or null (when they want to buy/implement)
+- requiredFeatures: array of strings (specific features/requirements mentioned)
+- notes: string or null (pain points, company info, and other relevant details combined)
+
+Only include information explicitly mentioned in the conversation. Use null for missing information.
 
 Transcript:
 ${transcript}
@@ -83,11 +85,47 @@ Return ONLY the JSON object:`;
       }
       
       const extracted = JSON.parse(cleaned);
-      return extracted;
+      return this.sanitizeDiscovery(extracted);
     } catch (error) {
       console.error("Discovery extraction failed:", error);
       return {};
     }
+  }
+
+  /**
+   * Sanitize AI-extracted discovery data to match Prisma Lead schema.
+   * Maps common AI field name mismatches and strips unknown fields.
+   */
+  private sanitizeDiscovery(raw: Record<string, unknown>): UpdateLeadDiscoveryInput {
+    // Build notes from extra fields the AI may return
+    const extraParts: string[] = [];
+    if (raw.painPoints && Array.isArray(raw.painPoints) && raw.painPoints.length > 0) {
+      extraParts.push(`Pain points: ${raw.painPoints.join("; ")}`);
+    }
+    if (raw.companyInfo && typeof raw.companyInfo === "object") {
+      extraParts.push(`Company info: ${JSON.stringify(raw.companyInfo)}`);
+    }
+
+    const existingNotes = typeof raw.notes === "string" ? raw.notes : null;
+    const combinedNotes = [existingNotes, ...extraParts].filter(Boolean).join(" | ") || undefined;
+
+    // Map AI field names to Prisma column names
+    const timeline = raw.launchTimeline ?? raw.timeline;
+    const features = raw.requiredFeatures ?? raw.requirements;
+
+    const result: UpdateLeadDiscoveryInput = {
+      budget: typeof raw.budget === "string" ? raw.budget : undefined,
+      productType: typeof raw.productType === "string" ? raw.productType : undefined,
+      productCount: typeof raw.productCount === "number" ? raw.productCount : undefined,
+      launchTimeline: typeof timeline === "string" ? timeline : undefined,
+      requiredFeatures: Array.isArray(features) ? features.filter((f): f is string => typeof f === "string") : undefined,
+      notes: combinedNotes,
+    };
+
+    // Remove undefined keys so Prisma only updates provided fields
+    return Object.fromEntries(
+      Object.entries(result).filter(([, v]) => v !== undefined)
+    ) as UpdateLeadDiscoveryInput;
   }
 
   async qualifyConversation(input: { 
@@ -95,28 +133,38 @@ Return ONLY the JSON object:`;
     currentLead: UpdateLeadDiscoveryInput 
   }): Promise<LeadQualification> {
     try {
-      const prompt = `Analyze this sales conversation and qualify the lead as HOT, WARM, or COLD.
+      const prompt = `You are an expert Indian sales lead qualifier for an e-commerce website agency. Analyze this conversation and classify the lead.
 
-HOT (75-100 score): 
-- Ready to buy soon (within days/weeks)
-- Clear budget discussed
-- Decision maker engaged
-- Specific requirements mentioned
-- Strong buying signals
+This is a REAL-TIME mid-call analysis. The transcript may be PARTIAL (call still ongoing). Score based on what IS said, not what is missing.
 
-WARM (40-74 score):
-- Interested but not urgent
-- Budget discussed but vague
-- Needs more information
-- Timeline is months away
-- Some requirements mentioned
+## CLASSIFICATION RULES (apply in order):
 
-COLD (0-39 score):
-- Just researching
-- No budget mentioned
-- No clear timeline
-- Vague interest
-- Not decision maker
+### HOT (score 75-100) — Assign HOT if ANY of these are true:
+1. Customer explicitly says they WANT the project/product/service:
+   - English: "I want this", "I want to proceed", "let's start", "I'm ready", "I want to go ahead", "sign me up"
+   - Hindi/Hinglish: "mujhe chahiye", "mujhe project chahiye", "haan karna hai", "start karo", "ready hu", "karna chahta hu", "karwa do", "bana do"
+2. Customer discusses a CONCRETE budget AND specific requirements (product count, features, product type)
+3. Customer asks about pricing/payment terms with intent to buy (not just curiosity)
+4. Customer provides their business details AND asks for next steps/proposal/demo
+
+### WARM (score 40-74) — Assign WARM if:
+- Customer shows interest but adds hesitation: "sochna padega", "discuss karunga", "need to think", "let me check", "budget nahi pata", "not sure about timeline"
+- Customer asks questions but has not committed
+- Budget is mentioned but seems unrealistic or very vague ("depends", "flexible")
+- Decision depends on someone else ("boss se puchna padega", "partner se baat karni hai")
+- Timeline is months away or not urgent
+
+### COLD (score 0-39) — Assign COLD if:
+- Customer is just researching with no current need
+- No budget, no requirements, no interest signals
+- Customer says "not interested", "don't need", "just looking"
+- Wrong contact / not the decision maker and unwilling to connect
+
+## IMPORTANT:
+- A customer saying "mujhe project chahiye" (I want this project) + discussing features/budget = HOT, NOT WARM
+- Do NOT penalize for missing timeline if budget + requirements + intent are strong
+- Indian customers often express intent indirectly — treat feature/product discussions with budget as strong signals
+- Partial mid-call transcripts should not be scored lower just because the call isn't finished
 
 Current lead info:
 ${JSON.stringify(input.currentLead, null, 2)}
@@ -130,7 +178,7 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no code 
   "score": <number 0-100>,
   "reasoning": "<brief explanation>",
   "signals": {
-    "buyingIntent": "<analysis of buying intent>",
+    "buyingIntent": "<analysis of buying intent with exact quotes>",
     "budget": "<budget discussion summary>",
     "timeline": "<timeline mentioned>",
     "requirements": "<specific requirements mentioned>"
@@ -151,7 +199,7 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no code 
       
       return {
         classification: qualification.classification || "COLD",
-        score: qualification.score || 0,
+        score: Math.max(0, Math.min(100, qualification.score || 0)),
         reasoning: qualification.reasoning || "Unable to determine qualification",
         signals: qualification.signals || {
           buyingIntent: "Unknown",
@@ -197,9 +245,18 @@ Requirements:
 - Language: ${targetLanguage}
 - Tone: Professional, friendly, conversational
 - Length: 2-3 sentences max
-- Reference specific points from conversation
-- Include next steps
+- Reference ONLY specific points that were ACTUALLY discussed in the conversation
+- Include next steps ONLY if they were mentioned in the call
 ${input.name ? `- Address customer as: ${input.name}` : "- Don't use generic greetings"}
+
+STRICT RULES — NEVER VIOLATE:
+- Do NOT invent discounts, offers, or deals that were not explicitly mentioned
+- Do NOT create fake deadlines or urgency (e.g., "limited time", "offer expires")
+- Do NOT mention prices, costs, or budgets unless the customer stated them
+- Do NOT promise features, timelines, or deliverables that were not discussed
+- Do NOT add booking links, appointment offers, or scheduling unless discussed
+- Do NOT fabricate testimonials, statistics, or social proof
+- ONLY reference information that appears in the transcript below
 
 Conversation transcript:
 ${input.transcript}
@@ -244,18 +301,26 @@ Generate ONLY the WhatsApp message text (no quotes, no labels):`;
 
       const targetLanguage = languageMap[input.language] || "English";
 
-      const prompt = `Generate an URGENT, PERSONALIZED WhatsApp message for a HOT LEAD who just showed strong buying intent.
+      const prompt = `Generate a PERSONALIZED WhatsApp message for a lead who just showed strong buying intent.
 
 Requirements:
 - Language: ${targetLanguage}
-- Tone: Excited but professional, action-oriented
+- Tone: Warm, professional, enthusiastic (but NOT pushy)
 - Length: 3-4 sentences
-- Acknowledge their specific interests
-- Create urgency
-- Clear call-to-action
+- Acknowledge their specific interests from the conversation
+- Suggest connecting further to discuss details
 ${input.name ? `- Address customer as: ${input.name}` : ""}
 
-Discovered information:
+STRICT RULES — NEVER VIOLATE:
+- Do NOT invent discounts, special offers, or deals
+- Do NOT create fake deadlines or urgency (e.g., "limited slots", "offer expires today")
+- Do NOT mention prices, costs, or budgets unless the customer explicitly stated them
+- Do NOT promise features, timelines, or deliverables that were not discussed
+- Do NOT fabricate booking offers, free consultations, or trial periods unless discussed
+- Do NOT add statistics, testimonials, or social proof that wasn't mentioned
+- ONLY reference information that appears in the conversation below
+
+Discovered information (from conversation only):
 ${JSON.stringify(input.discoveredInfo || {}, null, 2)}
 
 Conversation highlights:
