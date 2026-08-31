@@ -209,6 +209,10 @@ export class InMemoryCallbackRepository implements CallbackRepository {
       sourceText: input.sourceText,
       status: "SCHEDULED",
       calendarEventId: null,
+      providerCallId: null,
+      failureReason: null,
+      triggeredAt: null,
+      completedAt: null,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -229,6 +233,56 @@ export class InMemoryCallbackRepository implements CallbackRepository {
       .filter((callback) => !input.leadId || callback.leadId === input.leadId)
       .sort((left, right) => left.scheduledFor.getTime() - right.scheduledFor.getTime());
     return paginate(records, input.limit, input.offset);
+  }
+
+  async findPendingCallbacks(cutoffTime: Date): Promise<CallbackRecord[]> {
+    return [...this.records.values()]
+      .filter((callback) => callback.status === "SCHEDULED" && callback.scheduledFor <= cutoffTime)
+      .sort((left, right) => left.scheduledFor.getTime() - right.scheduledFor.getTime());
+  }
+
+  async findByProviderCallId(providerCallId: string): Promise<CallbackRecord | null> {
+    return [...this.records.values()].find((callback) => callback.providerCallId === providerCallId) ?? null;
+  }
+
+  async markAsProcessing(id: string, providerCallId: string): Promise<CallbackRecord> {
+    const existing = this.records.get(id);
+    if (!existing) throw new Error("Callback does not exist.");
+    const updated = { 
+      ...existing, 
+      status: "PROCESSING" as const, 
+      providerCallId,
+      triggeredAt: now(),
+      updatedAt: now() 
+    };
+    this.records.set(id, updated);
+    return updated;
+  }
+
+  async markAsCompleted(id: string): Promise<CallbackRecord> {
+    const existing = this.records.get(id);
+    if (!existing) throw new Error("Callback does not exist.");
+    const updated = { 
+      ...existing, 
+      status: "COMPLETED" as const,
+      completedAt: now(),
+      updatedAt: now() 
+    };
+    this.records.set(id, updated);
+    return updated;
+  }
+
+  async markAsFailed(id: string, reason: string): Promise<CallbackRecord> {
+    const existing = this.records.get(id);
+    if (!existing) throw new Error("Callback does not exist.");
+    const updated = { 
+      ...existing, 
+      status: "FAILED" as const,
+      failureReason: reason,
+      updatedAt: now() 
+    };
+    this.records.set(id, updated);
+    return updated;
   }
 }
 

@@ -193,6 +193,61 @@ class PrismaCallbackRepository implements CallbackRepository {
     ]);
     return { items: records.map(asCallback), total, limit: input.limit, offset: input.offset };
   }
+
+  async findPendingCallbacks(cutoffTime: Date): Promise<CallbackRecord[]> {
+    const records = await this.db.callback.findMany({
+      where: {
+        status: "SCHEDULED",
+        scheduledFor: { lte: cutoffTime },
+      },
+      orderBy: { scheduledFor: "asc" },
+    });
+    return records.map(asCallback);
+  }
+
+  async findByProviderCallId(providerCallId: string): Promise<CallbackRecord | null> {
+    const record = await this.db.callback.findUnique({
+      where: { providerCallId },
+    });
+    return record ? asCallback(record) : null;
+  }
+
+  async markAsProcessing(id: string, providerCallId: string): Promise<CallbackRecord> {
+    return asCallback(
+      await this.db.callback.update({
+        where: { id },
+        data: { 
+          status: "PROCESSING", 
+          providerCallId,
+          triggeredAt: new Date(),
+        },
+      }),
+    );
+  }
+
+  async markAsCompleted(id: string): Promise<CallbackRecord> {
+    return asCallback(
+      await this.db.callback.update({
+        where: { id },
+        data: { 
+          status: "COMPLETED",
+          completedAt: new Date(),
+        },
+      }),
+    );
+  }
+
+  async markAsFailed(id: string, reason: string): Promise<CallbackRecord> {
+    return asCallback(
+      await this.db.callback.update({
+        where: { id },
+        data: { 
+          status: "FAILED",
+          failureReason: reason,
+        },
+      }),
+    );
+  }
 }
 
 class PrismaWhatsAppMessageRepository implements WhatsAppMessageRepository {

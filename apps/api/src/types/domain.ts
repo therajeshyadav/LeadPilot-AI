@@ -56,6 +56,10 @@ export interface CallbackRecord {
   sourceText: string;
   status: CallbackStatus;
   calendarEventId: string | null;
+  providerCallId: string | null;
+  failureReason: string | null;
+  triggeredAt: Date | null;
+  completedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }

@@ -82,7 +82,7 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: leadPhone,
-          assistantId: '3f72fb26-85e3-453d-880d-cedd3df88c93', // Your Vapi assistant ID
+          assistantId: '7f795183-ecc0-43ed-b8b6-e834c585bd64', // Your Vapi assistant ID
           metadata: { leadId, leadName }
         }),
       });

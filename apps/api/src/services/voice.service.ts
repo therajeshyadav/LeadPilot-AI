@@ -327,12 +327,36 @@ export class VoiceService {
         : undefined
     });
 
+    // Check if this call was for a callback and mark it as completed
+    if (this.callbacks) {
+      await this.checkAndCompleteCallback(event.providerCallId);
+    }
+
     // Trigger post-call processing if we have AI and transcript
     if (this.intelligence && conversation.transcript) {
       await this.processCallEnded(conversation.leadId, conversationId, conversation.transcript, conversation.detectedLanguage);
     }
 
     console.log(`Call ended: ${event.providerCallId}`);
+  }
+
+  /**
+   * Check if the call was triggered by a callback and mark it as completed
+   */
+  private async checkAndCompleteCallback(providerCallId: string): Promise<void> {
+    if (!this.callbacks) return;
+
+    try {
+      const callback = await this.callbacks.findByProviderCallId(providerCallId);
+
+      if (callback && callback.status === "PROCESSING") {
+        await this.callbacks.markAsCompleted(callback.id);
+        console.log(`✅ Callback ${callback.id} marked as completed`);
+      }
+    } catch (error) {
+      console.error(`Error completing callback for call ${providerCallId}:`, error);
+      // Don't throw - this shouldn't break call processing
+    }
   }
 
   private async processCallEnded(leadId: string, conversationId: string, transcript: string, language: SupportedLanguage): Promise<void> {

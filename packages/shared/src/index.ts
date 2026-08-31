@@ -11,7 +11,7 @@ export const conversationOutcomeSchema = z.enum([
   "ENDED_EARLY",
 ]);
 export const conversationRoleSchema = z.enum(["AGENT", "CUSTOMER", "SYSTEM", "TOOL"]);
-export const callbackStatusSchema = z.enum(["SCHEDULED", "COMPLETED", "CANCELLED", "FAILED"]);
+export const callbackStatusSchema = z.enum(["SCHEDULED", "PROCESSING", "COMPLETED", "CANCELLED", "FAILED"]);
 export const whatsappMessageTypeSchema = z.enum(["HOT_LEAD", "FOLLOW_UP", "MANUAL"]);
 export const whatsappMessageStatusSchema = z.enum(["PENDING", "SENT", "DELIVERED", "FAILED"]);
 export const qualificationClassificationSchema = z.enum(["HOT", "WARM", "COLD"]);

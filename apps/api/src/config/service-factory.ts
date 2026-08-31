@@ -82,5 +82,6 @@ export function createConfiguredServices(config: AppConfig): AppServices {
     voiceProvider,
     intelligenceProvider,
     calendarProvider,
+    defaultAssistantId: config.VOICE_AGENT_ID,
   });
 }

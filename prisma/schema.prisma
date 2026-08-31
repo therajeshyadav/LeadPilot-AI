@@ -39,6 +39,7 @@ enum ConversationRole {
 
 enum CallbackStatus {
   SCHEDULED
+  PROCESSING
   COMPLETED
   CANCELLED
   FAILED
@@ -126,6 +127,10 @@ model Callback {
   sourceText      String
   status          CallbackStatus @default(SCHEDULED)
   calendarEventId String?        @unique
+  providerCallId  String?        @unique
+  failureReason   String?
+  triggeredAt     DateTime?
+  completedAt     DateTime?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 

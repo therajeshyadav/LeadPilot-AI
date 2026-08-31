@@ -48,6 +48,11 @@ export interface CallbackRepository {
   create(input: CreateCallbackInput & { leadId: string }): Promise<CallbackRecord>;
   attachCalendarEvent(id: string, calendarEventId: string): Promise<CallbackRecord>;
   list(input: { limit: number; offset: number; leadId?: string }): Promise<PaginatedResult<CallbackRecord>>;
+  findPendingCallbacks(cutoffTime: Date): Promise<CallbackRecord[]>;
+  findByProviderCallId(providerCallId: string): Promise<CallbackRecord | null>;
+  markAsProcessing(id: string, providerCallId: string): Promise<CallbackRecord>;
+  markAsCompleted(id: string): Promise<CallbackRecord>;
+  markAsFailed(id: string, reason: string): Promise<CallbackRecord>;
 }
 
 export interface WhatsAppMessageRepository {

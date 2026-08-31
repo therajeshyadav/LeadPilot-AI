@@ -25,6 +25,7 @@ export function createServices(input: {
   voiceProvider?: VoiceProvider;
   intelligenceProvider?: LeadIntelligenceProvider;
   calendarProvider?: CalendarProvider;
+  defaultAssistantId?: string;
 }): AppServices {
   const { repositories } = input;
   
@@ -37,7 +38,13 @@ export function createServices(input: {
     repositories.qualifications,
     input.intelligenceProvider
   );
-  const callbacks = new CallbackService(repositories.callbacks, repositories.leads, input.calendarProvider);
+  const callbacks = new CallbackService(
+    repositories.callbacks, 
+    repositories.leads, 
+    input.calendarProvider,
+    input.voiceProvider,
+    input.defaultAssistantId
+  );
   const whatsapp = new WhatsAppService(repositories.whatsappMessages, repositories.leads, input.whatsappProvider, input.intelligenceProvider);
   
   // Create voice service with whatsapp and callbacks dependencies
