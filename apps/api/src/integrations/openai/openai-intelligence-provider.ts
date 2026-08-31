@@ -199,19 +199,23 @@ Discovered Information:
             role: "system",
             content: `${languagePrompts[input.language]}.
 
-This customer has shown STRONG buying intent during the live call.
+This customer has shown strong buying intent during the live call.
 
 Create a personalized message that:
 1. Acknowledges their specific requirements mentioned in the conversation
-2. References their product type, budget, timeline if discussed
-3. Shows urgency and excitement about their project
-4. Mentions next steps (proposal coming soon)
-5. Includes contact: +91-9876543210
-6. Professional but enthusiastic tone
-7. Keep it 3-4 sentences max
-8. Use emojis appropriately (📦 💰 ⏰ ✨ 👋)
+2. References their product type, budget, timeline ONLY if discussed
+3. Suggests connecting further to discuss details
+4. Professional but enthusiastic tone (NOT pushy)
+5. Keep it 3-4 sentences max
 
-CRITICAL: Only reference information that was ACTUALLY mentioned in the conversation. Do NOT invent details.`
+STRICT RULES — NEVER VIOLATE:
+- Do NOT invent discounts, special offers, or deals
+- Do NOT create fake deadlines or urgency (e.g., "limited slots", "offer expires today")
+- Do NOT mention prices, costs, or budgets unless the customer explicitly stated them
+- Do NOT promise features, timelines, or deliverables that were not discussed
+- Do NOT fabricate booking offers, free consultations, or trial periods
+- Do NOT add statistics, testimonials, or social proof that wasn't mentioned
+- ONLY reference information that was ACTUALLY mentioned in the conversation`
           },
           {
             role: "user",
@@ -271,13 +275,19 @@ Conversation transcript: ${input.transcript}${discoveryContext}`
             content: `${languagePrompts[input.language]}. 
 
 Based on the conversation, create a contextual follow-up that:
-1. References specific details discussed (budget, requirements, timeline)
-2. Includes next steps or relevant information
+1. References ONLY specific details that were ACTUALLY discussed (budget, requirements, timeline)
+2. Includes next steps ONLY if they were mentioned in the call
 3. Maintains professional but friendly tone
 4. Keep it concise (2-3 sentences max)
-5. Include contact number: +91-9876543210
 
-Do NOT make up information not mentioned in the conversation.`
+STRICT RULES — NEVER VIOLATE:
+- Do NOT invent discounts, offers, or deals that were not explicitly mentioned
+- Do NOT create fake deadlines or urgency (e.g., "limited time", "offer expires")
+- Do NOT mention prices, costs, or budgets unless the customer stated them
+- Do NOT promise features, timelines, or deliverables that were not discussed
+- Do NOT add booking links, appointment offers, or scheduling unless discussed
+- Do NOT fabricate testimonials, statistics, or social proof
+- ONLY reference information from the transcript`
           },
           {
             role: "user",
