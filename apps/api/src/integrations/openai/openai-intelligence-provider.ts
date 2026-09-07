@@ -267,6 +267,8 @@ Conversation transcript: ${input.transcript}${discoveryContext}`
         UNKNOWN: "Generate a personalized WhatsApp follow-up message in English"
       };
 
+      const contactNumber = process.env.SALES_CONTACT_PHONE || "+91-9876543210";
+
       const response = await this.callOpenAI({
         model: "gpt-4o",
         messages: [
@@ -275,10 +277,16 @@ Conversation transcript: ${input.transcript}${discoveryContext}`
             content: `${languagePrompts[input.language]}. 
 
 Based on the conversation, create a contextual follow-up that:
-1. References ONLY specific details that were ACTUALLY discussed (budget, requirements, timeline)
-2. Includes next steps ONLY if they were mentioned in the call
-3. Maintains professional but friendly tone
-4. Keep it concise (2-3 sentences max)
+1. References specific details from the conversation:
+   - Product/business type if mentioned
+   - Budget range if discussed
+   - Timeline if mentioned
+   - Key requirements or features discussed
+   - Any concerns or questions they had
+2. Write as a natural human follow-up (NOT a table or list format)
+3. MUST include contact number: ${contactNumber}
+4. Keep it 2-4 sentences
+5. Professional but friendly tone
 
 STRICT RULES — NEVER VIOLATE:
 - Do NOT invent discounts, offers, or deals that were not explicitly mentioned
@@ -287,7 +295,8 @@ STRICT RULES — NEVER VIOLATE:
 - Do NOT promise features, timelines, or deliverables that were not discussed
 - Do NOT add booking links, appointment offers, or scheduling unless discussed
 - Do NOT fabricate testimonials, statistics, or social proof
-- ONLY reference information from the transcript`
+- ONLY reference information from the transcript
+- If the transcript is empty or unclear, send a simple thank you message`
           },
           {
             role: "user",
@@ -295,34 +304,76 @@ STRICT RULES — NEVER VIOLATE:
 Conversation: ${input.transcript}`
           }
         ],
-        max_tokens: 200,
+        max_tokens: 250,
         temperature: 0.3
       });
 
-      return response.choices[0]?.message?.content?.trim() || 
-        `Hi ${input.name || ""}, thank you for your interest in our e-commerce development services. We'll be in touch soon to discuss your requirements. Contact: +91-9876543210`;
+      const message = response.choices[0]?.message?.content?.trim();
+      
+      // Ensure message is never empty
+      if (!message || message.length < 10) {
+        return this.getFallbackFollowUpMessage(input.language, input.name, contactNumber);
+      }
+      
+      return message;
     } catch (error) {
       console.error("Follow-up generation failed:", error);
-      return `Hi ${input.name || ""}, thank you for your interest in our e-commerce development services. We'll be in touch soon to discuss your requirements. Contact: +91-9876543210`;
+      const contactNumber = process.env.SALES_CONTACT_PHONE || "+91-9876543210";
+      return this.getFallbackFollowUpMessage(input.language, input.name, contactNumber);
     }
+  }
+
+  private getFallbackFollowUpMessage(language: SupportedLanguage, name?: string, contactNumber?: string): string {
+    const contact = contactNumber || "+91-9876543210";
+    const customerName = name || "";
+    
+    if (language === "HINDI") {
+      return `नमस्ते${customerName ? ` ${customerName}` : ""}! हमारी e-commerce development services में आपकी रुचि के लिए धन्यवाद। हम जल्द ही आपको और जानकारी भेजेंगे।\n\n📞 संपर्क: ${contact}`;
+    }
+    if (language === "TELUGU") {
+      return `నమస్కారం${customerName ? ` ${customerName}` : ""}! మా e-commerce development services పట్ల మీ ఆసక్తికి ధన్యవాదాలు। మేము త్వరలో మరిన్ని వివరాలను పంపుతాము।\n\n📞 సంప్రదింపు: ${contact}`;
+    }
+    return `Hi${customerName ? ` ${customerName}` : ""}! Thank you for your interest in our e-commerce development services. We'll send you more details shortly.\n\n📞 Contact: ${contact}`;
   }
 
   async detectCallbackIntent(transcript: string, language: SupportedLanguage): Promise<CallbackIntent> {
     try {
       const languageExamples = {
-        ENGLISH: `- "Call me tomorrow"
+        ENGLISH: `Examples that ARE callback requests:
+- "Call me tomorrow"
 - "Call me tomorrow morning"
 - "Call me at 5 PM"
 - "Can you call back on Monday afternoon?"
 - "Let's talk next week"
-- "Call me in the evening"`,
-        HINDI: `- "कल मुझे फोन करें"
+- "Call me in the evening"
+
+Examples that are NOT callback requests:
+- "I need a website"
+- "My budget is 20k"
+- "Send me details"
+- "I will think about it"
+- "I need to discuss with my partner"
+- "Okay, thank you"`,
+        HINDI: `Examples that ARE callback requests:
+- "कल मुझे फोन करें"
 - "कल सुबह मुझे कॉल करें"
 - "शाम को बात करते हैं"
-- "सोमवार को फोन कर देना"`,
-        TELUGU: `- "రేపు నాకు ఫోన్ చేయండి"
+- "सोमवार को फोन कर देना"
+
+Examples that are NOT callback requests:
+- "मुझे website चाहिए"
+- "मेरा budget 20k है"
+- "details भेजो"
+- "सोचके बताऊंगा"`,
+        TELUGU: `Examples that ARE callback requests:
+- "రేపు నాకు ఫోన్ చేయండి"
 - "ఉదయం కాల్ చేయండి"
-- "సాయంత్రం మాట్లాడుకుందాం"`,
+- "సాయంత్రం మాట్లాడుకుందాం"
+
+Examples that are NOT callback requests:
+- "నాకు website కావాలి"
+- "నా budget 20k"
+- "details పంపండి"`,
         UNKNOWN: "Use English examples"
       };
 
@@ -331,7 +382,12 @@ Conversation: ${input.transcript}`
         messages: [
           {
             role: "system",
-            content: `Analyze if the customer is requesting a callback and extract when they want to be called.
+            content: `Analyze if the customer EXPLICITLY requested a callback and extract when they want to be called.
+
+CRITICAL RULES:
+- ONLY set requested=true if the customer EXPLICITLY asks to be called back
+- Normal conversation, questions, or interest do NOT count as callback requests
+- The customer must use phrases that request a future call
 
 Return JSON with this exact structure:
 {
@@ -339,12 +395,11 @@ Return JSON with this exact structure:
   "date": "YYYY-MM-DD or null (specific date like 'tomorrow', 'Monday', 'next week')",
   "timeOfDay": "morning | afternoon | evening | specific | null",
   "specificTime": "HH:MM or null (24-hour format like '17:00' for 5 PM)",
-  "originalText": "exact phrase from transcript"
+  "originalText": "exact phrase from transcript or null"
 }
 
 Language context: ${language}
 
-Examples:
 ${languageExamples[language] || languageExamples.ENGLISH}
 
 Rules:
@@ -357,7 +412,8 @@ Rules:
 - "5 PM", "17:00" = specificTime "17:00"
 - If no callback mentioned, requested = false
 - Only extract information explicitly mentioned
-- For dates in the past or unclear references, use null`
+- For dates in the past or unclear references, use null
+- IMPORTANT: Use null for missing values, NOT undefined`
           },
           {
             role: "user",
@@ -387,6 +443,7 @@ Transcript: ${transcript}`
       };
     } catch (error) {
       console.error("Callback intent detection failed:", error);
+      console.error("Error details:", error instanceof Error ? error.message : String(error));
       return { requested: false, originalText: "" };
     }
   }

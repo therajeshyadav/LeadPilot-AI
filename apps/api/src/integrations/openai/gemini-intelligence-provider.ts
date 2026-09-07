@@ -238,16 +238,23 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no code 
       };
 
       const targetLanguage = languageMap[input.language] || "English";
+      const contactNumber = process.env.SALES_CONTACT_PHONE || "+91-9876543210";
 
       const prompt = `Generate a personalized WhatsApp follow-up message based on this conversation.
 
 Requirements:
 - Language: ${targetLanguage}
 - Tone: Professional, friendly, conversational
-- Length: 2-3 sentences max
-- Reference ONLY specific points that were ACTUALLY discussed in the conversation
-- Include next steps ONLY if they were mentioned in the call
-${input.name ? `- Address customer as: ${input.name}` : "- Don't use generic greetings"}
+- Length: 2-4 sentences
+- Reference specific details from the conversation:
+  * Product/business type if mentioned
+  * Budget range if discussed
+  * Timeline if mentioned
+  * Key requirements or features discussed
+  * Any concerns or questions they had
+- Write as a natural human follow-up (NOT a table or list format)
+- MUST include contact number: ${contactNumber}
+${input.name ? `- Address customer as: ${input.name}` : "- Use appropriate greeting"}
 
 STRICT RULES — NEVER VIOLATE:
 - Do NOT invent discounts, offers, or deals that were not explicitly mentioned
@@ -257,6 +264,7 @@ STRICT RULES — NEVER VIOLATE:
 - Do NOT add booking links, appointment offers, or scheduling unless discussed
 - Do NOT fabricate testimonials, statistics, or social proof
 - ONLY reference information that appears in the transcript below
+- If the transcript is empty or unclear, send a simple thank you message
 
 Conversation transcript:
 ${input.transcript}
@@ -264,20 +272,33 @@ ${input.transcript}
 Generate ONLY the WhatsApp message text (no quotes, no labels):`;
 
       const response = await this.generateContent(prompt);
-      return response.trim();
+      const message = response.trim();
+      
+      // Ensure message is never empty
+      if (!message || message.length < 10) {
+        return this.getFallbackFollowUpMessage(input.language, input.name, contactNumber);
+      }
+      
+      return message;
     } catch (error) {
       console.error("Follow-up generation failed:", error);
-      
-      // Fallback messages
-      const fallbacks = {
-        ENGLISH: `Thank you for your interest! I'll send you more details shortly.`,
-        HINDI: `आपकी रुचि के लिए धन्यवाद! मैं जल्द ही आपको और जानकारी भेजूंगा।`,
-        TELUGU: `మీ ఆసక్తికి ధన్యవాదాలు! నేను త్వరలో మరిన్ని వివరాలను పంపుతాను।`,
-        UNKNOWN: `Thank you for your interest! I'll send you more details shortly.`
-      };
-      
-      return fallbacks[input.language] || fallbacks.UNKNOWN;
+      const contactNumber = process.env.SALES_CONTACT_PHONE || "+91-9876543210";
+      return this.getFallbackFollowUpMessage(input.language, input.name, contactNumber);
     }
+  }
+
+  private getFallbackFollowUpMessage(language: SupportedLanguage, name?: string, contactNumber?: string): string {
+    const contact = contactNumber || "+91-9876543210";
+    const customerName = name || "";
+    
+    const fallbacks = {
+      ENGLISH: `Hi${customerName ? ` ${customerName}` : ""}! Thank you for your interest in our e-commerce development services. We'll send you more details shortly.\n\n📞 Contact: ${contact}`,
+      HINDI: `नमस्ते${customerName ? ` ${customerName}` : ""}! हमारी e-commerce development services में आपकी रुचि के लिए धन्यवाद। हम जल्द ही आपको और जानकारी भेजेंगे।\n\n📞 संपर्क: ${contact}`,
+      TELUGU: `నమస్కారం${customerName ? ` ${customerName}` : ""}! మా e-commerce development services పట్ల మీ ఆసక్తికి ధన్యవాదాలు। మేము త్వరలో మరిన్ని వివరాలను పంపుతాము।\n\n📞 సంప్రదింపు: ${contact}`,
+      UNKNOWN: `Hi${customerName ? ` ${customerName}` : ""}! Thank you for your interest in our e-commerce development services. We'll send you more details shortly.\n\n📞 Contact: ${contact}`
+    };
+    
+    return fallbacks[language] || fallbacks.UNKNOWN;
   }
 
   async generateHotLeadMessage(input: { 
@@ -347,29 +368,40 @@ Generate ONLY the WhatsApp message (no quotes, no labels):`;
 
   async detectCallbackIntent(transcript: string, language: SupportedLanguage): Promise<CallbackIntent> {
     try {
-      const prompt = `Analyze if the customer requested a callback and extract timing details.
+      const prompt = `Analyze if the customer EXPLICITLY requested a callback and extract timing details.
+
+CRITICAL RULES:
+- ONLY set requested=true if the customer EXPLICITLY asks to be called back
+- Normal conversation, questions, or interest do NOT count as callback requests
+- The customer must use phrases that request a future call
+
+Examples that ARE callback requests:
+- "Call me tomorrow" / "kal call karna" / "రేపు కాల్ చేయండి"
+- "Call me at 5 PM" / "5 baje call karo" / "5 గంటలకు కాల్ చేయండి"
+- "Call me back tomorrow morning" / "kal subah call karna"
+- "I'll talk to you later, call me in the evening"
+
+Examples that are NOT callback requests:
+- "I need a website" / "mujhe website chahiye"
+- "My budget is 20k" / "mera budget 20k hai"
+- "Send me details" / "details bhejo"
+- "I will think about it" / "sochke bataunga"
+- "I need to discuss with my brother" / "bhai se discuss karunga"
+- "Okay, thank you" / "theek hai, dhanyavaad"
+- "What are the features?" / "features kya hain"
 
 Transcript:
 ${transcript}
 
 Language: ${language}
 
-Detect callback requests in any language (English, Hindi, Telugu).
-Common phrases:
-- "call me back", "baad mein call karo", "తిరిగి కాల్ చేయండి"
-- "morning", "subah", "ఉదయం"
-- "afternoon", "dopahar", "మధ్యాహ్నం"  
-- "evening", "shaam", "సాయంత్రం"
-- "tomorrow", "kal", "రేపు"
-- Specific times like "3 PM", "teen baje", etc.
-
-Return ONLY valid JSON (no markdown, no code blocks):
+Return ONLY valid JSON (no markdown, no code blocks). Use null (NOT undefined) for missing values:
 {
   "requested": true/false,
-  "date": "YYYY-MM-DD" or undefined,
-  "timeOfDay": "morning"/"afternoon"/"evening"/"specific" or undefined,
-  "specificTime": "HH:MM" or undefined,
-  "originalText": "exact phrase from transcript"
+  "date": "YYYY-MM-DD" or null,
+  "timeOfDay": "morning"/"afternoon"/"evening"/"specific" or null,
+  "specificTime": "HH:MM" or null,
+  "originalText": "exact phrase from transcript" or null
 }`;
 
       const response = await this.generateContent(prompt);
@@ -382,17 +414,21 @@ Return ONLY valid JSON (no markdown, no code blocks):
         cleaned = cleaned.replace(/```\n?/g, "");
       }
       
+      // Replace JavaScript undefined with null before parsing
+      cleaned = cleaned.replace(/:\s*undefined/g, ': null');
+      
       const intent = JSON.parse(cleaned);
       
       return {
-        requested: intent.requested || false,
-        date: intent.date,
-        timeOfDay: intent.timeOfDay,
-        specificTime: intent.specificTime,
+        requested: Boolean(intent.requested),
+        date: intent.date || undefined,
+        timeOfDay: intent.timeOfDay || undefined,
+        specificTime: intent.specificTime || undefined,
         originalText: intent.originalText || ""
       };
     } catch (error) {
       console.error("Callback intent detection failed:", error);
+      console.error("Error details:", error instanceof Error ? error.message : String(error));
       return {
         requested: false,
         originalText: ""

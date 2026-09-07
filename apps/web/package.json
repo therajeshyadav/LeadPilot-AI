@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@leadpilot/shared": "file:../../packages/shared",
+    "lucide-react": "^1.38.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
@@ -27,5 +28,3 @@
     "vitest": "^3.1.4"
   }
 }
-
-

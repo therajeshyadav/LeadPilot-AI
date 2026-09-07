@@ -138,8 +138,8 @@ export class VapiProvider implements VoiceProvider {
         throw new Error("Invalid Vapi webhook payload");
       }
 
-      // Extract transcript from message or conversation array
-      let transcript = message.transcript;
+      // Extract transcript from message or artifact (end-of-call-report)
+      let transcript = message.transcript || ((message as any).artifact && (message as any).artifact.transcript);
       
       // For conversation-update events, build full transcript from messages
       if (message.type === 'conversation-update' && body.message && (body.message as any).messages) {

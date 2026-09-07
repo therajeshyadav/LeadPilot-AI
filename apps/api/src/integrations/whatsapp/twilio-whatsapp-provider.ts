@@ -25,6 +25,11 @@ export class TwilioWhatsAppProvider implements WhatsAppProvider {
 
   async sendText(request: WhatsAppTextRequest): Promise<WhatsAppSendResult> {
     try {
+      console.log(`🔵 Twilio sendText called`);
+      console.log(`   To: ${request.to}`);
+      console.log(`   Body length: ${request.body?.length || 0} chars`);
+      console.log(`   Body preview: ${request.body?.substring(0, 100)}...`);
+      
       const response = await this.makeRequest({
         To: this.formatPhoneNumber(request.to),
         From: this.config.fromNumber,
@@ -35,20 +40,29 @@ export class TwilioWhatsAppProvider implements WhatsAppProvider {
         throw new Error(`Twilio error ${response.error_code}: ${response.error_message}`);
       }
 
+      console.log(`✅ Twilio message sent successfully - SID: ${response.sid}, Status: ${response.status}`);
+
       return {
         providerMessageId: response.sid,
       };
     } catch (error) {
+      console.error(`❌ Twilio sendText failed:`, error);
       throw new Error(`Failed to send WhatsApp message: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   }
 
   async sendMedia(request: WhatsAppMediaRequest): Promise<WhatsAppSendResult> {
     try {
+      console.log(`🔵 Twilio sendMedia called`);
+      console.log(`   To: ${request.to}`);
+      console.log(`   Body length: ${request.body?.length || 0} chars`);
+      console.log(`   Body preview: ${request.body?.substring(0, 100) || '(empty)'}${request.body && request.body.length > 100 ? '...' : ''}`);
+      console.log(`   Media URL: ${request.mediaUrl}`);
+      
       const response = await this.makeRequest({
         To: this.formatPhoneNumber(request.to),
         From: this.config.fromNumber,
-        Body: request.body,
+        Body: request.body || "", // Ensure body is at least empty string
         MediaUrl: request.mediaUrl,
       });
 
@@ -56,10 +70,13 @@ export class TwilioWhatsAppProvider implements WhatsAppProvider {
         throw new Error(`Twilio error ${response.error_code}: ${response.error_message}`);
       }
 
+      console.log(`✅ Twilio media message sent successfully - SID: ${response.sid}, Status: ${response.status}`);
+
       return {
         providerMessageId: response.sid,
       };
     } catch (error) {
+      console.error(`❌ Twilio sendMedia failed:`, error);
       throw new Error(`Failed to send WhatsApp media message: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   }

@@ -113,7 +113,7 @@ describe("HOT Lead WhatsApp Integration", () => {
       expect(mockWhatsAppProvider.sendText).toHaveBeenCalledWith({
         to: "+919876543210",
         body: expect.stringContaining("John Doe"),
-        idempotencyKey: "hot_lead_conv_123_" + lead.id,
+        idempotencyKey: "hot_lead_conv_123",
       });
     });
 
@@ -277,7 +277,7 @@ describe("HOT Lead WhatsApp Integration", () => {
         expect.objectContaining({
           to: "+919876543210",
           body: expect.any(String), // AI-generated message
-          idempotencyKey: `hot_lead_${conversation.id}_${lead.id}`,
+          idempotencyKey: `hot_lead_${conversation.id}`,
         })
       );
 

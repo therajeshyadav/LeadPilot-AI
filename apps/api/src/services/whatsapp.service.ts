@@ -72,17 +72,25 @@ export class WhatsAppService {
   async sendHotLeadAlert(input: HotLeadWhatsAppInput): Promise<SendWhatsAppResult> {
     // Use conversation-based idempotency to prevent duplicate HOT alerts
     const idempotencyKey = input.conversationId 
-      ? `hot_lead_${input.conversationId}_${input.leadId}`
+      ? `hot_lead_${input.conversationId}`
       : `hot_lead_manual_${input.leadId}_${Date.now()}`;
 
+    console.log(`🔍 Checking HOT lead WhatsApp idempotency - Key: ${idempotencyKey}`);
+    
     const previous = await this.messages.findByIdempotencyKey(idempotencyKey);
     if (previous) {
-      console.log(`HOT lead WhatsApp already sent for lead ${input.leadId}, conversation ${input.conversationId}`);
+      console.log(`⚠️ HOT lead WhatsApp already sent for lead ${input.leadId}, conversation ${input.conversationId}`);
+      console.log(`   Previous message ID: ${previous.id}, Status: ${previous.sentAt ? 'SENT' : 'PENDING/FAILED'}, Provider Message ID: ${previous.providerMessageId || 'N/A'}`);
       return { message: previous, idempotent: true };
     }
+    
+    console.log(`✅ No previous HOT lead WhatsApp found, proceeding to send...`);
+    console.log(`✅ No previous HOT lead WhatsApp found, proceeding to send...`);
 
     // Generate AI-based message from actual conversation
+    console.log(`🤖 Generating HOT lead message using AI...`);
     const message = await this.generateHotLeadMessage(input);
+    console.log(`✅ Generated HOT lead message (${message.length} chars): ${message.substring(0, 100)}...`);
     
     const pending = await this.messages.create({
       leadId: input.leadId,
@@ -93,7 +101,7 @@ export class WhatsAppService {
     });
 
     try {
-      console.log(`Sending HOT lead WhatsApp for lead ${input.leadId}`);
+      console.log(`📤 Sending HOT lead WhatsApp to ${input.leadData.phone} for lead ${input.leadId}`);
       
       const result = await this.provider.sendText({ 
         to: input.leadData.phone, 
@@ -103,11 +111,13 @@ export class WhatsAppService {
 
       const sent = await this.messages.markSent(pending.id, result.providerMessageId);
       
-      console.log(`HOT lead WhatsApp sent successfully: ${result.providerMessageId}`);
+      console.log(`✅ HOT lead WhatsApp sent successfully!`);
+      console.log(`   Message SID: ${result.providerMessageId}`);
+      console.log(`   Lead: ${input.leadId}, Conversation: ${input.conversationId}`);
       return { message: sent, idempotent: false };
     } catch (error) {
       await this.messages.markFailed(pending.id);
-      console.error(`HOT lead WhatsApp failed for lead ${input.leadId}:`, error);
+      console.error(`❌ HOT lead WhatsApp failed for lead ${input.leadId}:`, error);
       
       if (isAppError(error)) throw error;
       throw new IntegrationFailureError(this.provider.name, error);
@@ -126,12 +136,23 @@ export class WhatsAppService {
     const lead = await this.leads.findById(input.leadId);
     if (!lead) throw new NotFoundError("Lead");
 
+    // Validate message is not empty
+    if (!input.message || input.message.trim().length === 0) {
+      const error = new Error("Follow-up message body cannot be empty");
+      console.error("❌ WhatsApp send failed: empty message body");
+      throw error;
+    }
+
     const idempotencyKey = input.conversationId
       ? `followup_${input.conversationId}`
       : `followup_${input.leadId}_${Date.now()}`;
 
     const previous = await this.messages.findByIdempotencyKey(idempotencyKey);
     if (previous) return { message: previous, idempotent: true };
+
+    console.log(`📤 Preparing to send follow-up WhatsApp to ${lead.phone}`);
+    console.log(`   Message length: ${input.message.length} chars`);
+    console.log(`   Media attachments: ${input.mediaUrls?.length || 0}`);
 
     const pending = await this.messages.create({
       leadId: input.leadId,
@@ -145,7 +166,9 @@ export class WhatsAppService {
       let result;
       
       if (input.mediaUrls && input.mediaUrls.length > 0) {
-        // Send first media with text, then additional media separately
+        console.log(`📎 Sending message with media attachment: ${input.mediaUrls[0]}`);
+        
+        // Send first media with text
         result = await this.provider.sendMedia({ 
           to: lead.phone, 
           body: input.message, 
@@ -153,30 +176,38 @@ export class WhatsAppService {
           idempotencyKey 
         });
 
-        // Send additional media files
+        console.log(`✅ Primary message sent - SID: ${result.providerMessageId}`);
+
+        // Send additional media files separately (without text to avoid duplication)
         for (let i = 1; i < input.mediaUrls.length; i++) {
           try {
-            await this.provider.sendMedia({
+            console.log(`📎 Sending additional media ${i}: ${input.mediaUrls[i]}`);
+            const additionalResult = await this.provider.sendMedia({
               to: lead.phone,
-              body: "",
+              body: "", // Empty body for additional media
               mediaUrl: input.mediaUrls[i],
               idempotencyKey: `${idempotencyKey}_media_${i}`
             });
+            console.log(`✅ Additional media ${i} sent - SID: ${additionalResult.providerMessageId}`);
           } catch (error) {
-            console.warn(`Failed to send additional media ${i}:`, error);
+            console.warn(`⚠️ Failed to send additional media ${i}:`, error);
+            // Continue even if additional media fails
           }
         }
       } else {
+        console.log(`💬 Sending text-only message`);
         result = await this.provider.sendText({ 
           to: lead.phone, 
           body: input.message, 
           idempotencyKey 
         });
+        console.log(`✅ Text message sent - SID: ${result.providerMessageId}`);
       }
 
       return { message: await this.messages.markSent(pending.id, result.providerMessageId), idempotent: false };
     } catch (error) {
       await this.messages.markFailed(pending.id);
+      console.error(`❌ WhatsApp send failed:`, error);
       if (isAppError(error)) throw error;
       throw new IntegrationFailureError(this.provider.name, error);
     }

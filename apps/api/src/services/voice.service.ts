@@ -374,12 +374,15 @@ export class VoiceService {
     if (!this.intelligence) return;
 
     try {
+      console.log(`🔄 Starting post-call processing for lead: ${leadId}, conversation: ${conversationId}`);
+      
       // Extract discovery information
       const discovery = await this.intelligence.extractDiscovery(transcript);
       
       // Update lead with discovered information
       if (Object.keys(discovery).length > 0) {
         await this.leads.updateDiscovery(leadId, discovery);
+        console.log(`✅ Discovery updated for lead ${leadId}:`, discovery);
       }
 
       // Detect callback intent from the FULL transcript (most reliable)
@@ -391,39 +394,80 @@ export class VoiceService {
       if (this.whatsapp) {
         const lead = await this.leads.findById(leadId);
         if (lead) {
+          console.log(`📝 Generating post-call WhatsApp message for lead ${leadId}...`);
+          
           const followUpMessage = await this.intelligence.generateFollowUp({
             name: lead.name ?? undefined,
             language,
             transcript
           });
 
-          // Prepare media URLs if available
-          const mediaUrls = [];
-          if (process.env.ARCHITECTURE_IMAGE_URL) {
-            mediaUrls.push(process.env.ARCHITECTURE_IMAGE_URL);
-          }
-          if (process.env.RESUME_DOCUMENT_URL) {
-            mediaUrls.push(process.env.RESUME_DOCUMENT_URL);
+          console.log(`✅ Generated post-call WhatsApp message (${followUpMessage.length} chars):`);
+          console.log(`📱 Message body: ${followUpMessage}`);
+
+          // Validate message is not empty
+          if (!followUpMessage || followUpMessage.trim().length === 0) {
+            console.error(`❌ Generated message is empty! Using fallback.`);
+            const contactNumber = process.env.SALES_CONTACT_PHONE || "+91-9876543210";
+            const fallbackMessage = `Hi${lead.name ? ` ${lead.name}` : ""}! Thank you for your interest. We'll send you more details shortly.\n\n📞 Contact: ${contactNumber}`;
+            
+            try {
+              const result = await this.whatsapp.sendFollowUpMessage({
+                leadId,
+                conversationId,
+                message: fallbackMessage,
+                mediaUrls: this.getMediaUrls(),
+              });
+              
+              console.log(`✅ Post-call WhatsApp sent (fallback) - Message SID: ${result.message.providerMessageId}, Status: ${result.message.sentAt ? 'sent' : 'pending'}`);
+            } catch (fallbackError) {
+              console.error(`❌ Failed to send fallback post-call WhatsApp for ${leadId}:`, fallbackError);
+            }
+            return;
           }
 
           try {
-            await this.whatsapp.sendFollowUpMessage({
+            const result = await this.whatsapp.sendFollowUpMessage({
               leadId,
               conversationId,
               message: followUpMessage,
-              mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
+              mediaUrls: this.getMediaUrls(),
             });
 
-            console.log(`📱 Post-call follow-up WhatsApp sent for lead ${leadId}`);
+            console.log(`✅ Post-call WhatsApp sent successfully!`);
+            console.log(`   Message SID: ${result.message.providerMessageId}`);
+            console.log(`   Status: ${result.message.sentAt ? 'sent' : 'pending'}`);
+            console.log(`   Idempotent: ${result.idempotent}`);
+            
+            if (result.idempotent) {
+              console.log(`   (Message was already sent previously)`);
+            }
+
           } catch (followUpError) {
-            console.error(`Failed to send post-call follow-up WhatsApp for ${leadId}:`, followUpError);
+            console.error(`❌ Failed to send post-call follow-up WhatsApp for ${leadId}:`, followUpError);
+            console.error(`   Error details:`, followUpError instanceof Error ? followUpError.message : String(followUpError));
           }
         }
       }
 
-      console.log(`Post-call processing completed for lead: ${leadId}`);
+      console.log(`✅ Post-call processing completed for lead: ${leadId}`);
     } catch (error) {
-      console.error("Post-call processing failed:", error);
+      console.error("❌ Post-call processing failed:", error);
+      console.error("   Error details:", error instanceof Error ? error.message : String(error));
     }
+  }
+
+  /**
+   * Get media URLs for attachments (architecture image and resume)
+   */
+  private getMediaUrls(): string[] | undefined {
+    const mediaUrls = [];
+    if (process.env.ARCHITECTURE_IMAGE_URL) {
+      mediaUrls.push(process.env.ARCHITECTURE_IMAGE_URL);
+    }
+    if (process.env.RESUME_DOCUMENT_URL) {
+      mediaUrls.push(process.env.RESUME_DOCUMENT_URL);
+    }
+    return mediaUrls.length > 0 ? mediaUrls : undefined;
   }
 }
